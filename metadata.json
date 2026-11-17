@@ -1,0 +1,6 @@
+{
+  "name": "嘿！小黑 — 动感音乐MV",
+  "description": "为 Ham《嘿！小黑》（专辑《To 我的好朋友》）量身打造的实时音频律动与分镜叙事互动音乐 MV。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

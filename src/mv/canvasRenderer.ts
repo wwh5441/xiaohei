@@ -1,4 +1,5 @@
 import {
+  LYRIC_LINES,
   TRAVEL_STICKERS,
   type CameraMode,
   type MVChapter,
@@ -6,11 +7,13 @@ import {
 } from './mvData';
 import {
   clamp01,
+  getActiveLyricIndex,
   resolveActiveShot,
   type ActiveShotInfo,
   type AudioBands,
   type BeatState,
 } from './mvTimeline';
+import { renderSurfaceDiegeticLyrics } from './diegeticLyrics';
 import {
   renderBootsWheelsLowShot,
   renderChorusHeroLowShot,
@@ -143,7 +146,7 @@ export class MVCanvasRenderer {
       slot.specIdx = Math.floor(Math.random() * TRAVEL_STICKERS.length);
     }
 
-    this.emitSparks(normX, normY, 24, '#facc15', '#fb7185', true);
+    this.emitSparks(normX, normY, 10, '#facc15', '#fde68a', false);
   }
 
   private emitSparks(
@@ -195,31 +198,9 @@ export class MVCanvasRenderer {
     this.scrollDist += safeDt * 390 * speedFactor;
     this.wheelAngle += safeDt * 12.5 * speedFactor;
 
-    // Beat-synced confetti & sparks
-    if (beat.beatIndex !== this.lastBeatIndex && isPlaying && !reducedMotion) {
-      this.lastBeatIndex = beat.beatIndex;
-      const isChorusOrFinale =
-        chapter.id === 'chorus1' ||
-        chapter.id === 'chorus2' ||
-        chapter.id === 'finale';
-      if (isChorusOrFinale && (beat.beatInBar === 0 || beat.beatInBar === 2)) {
-        this.emitSparks(
-          0.5,
-          0.6,
-          chapter.id === 'finale' ? 20 : 12,
-          chapter.accentHex,
-          chapter.secondaryHex,
-          chapter.id === 'finale'
-        );
-      }
-    }
-
-    if (chapter.id !== this.lastChapterId) {
-      if (this.lastChapterId !== null && !reducedMotion) {
-        this.emitSparks(0.5, 0.5, 22, chapter.accentHex, chapter.secondaryHex, true);
-      }
-      this.lastChapterId = chapter.id;
-    }
+    // Keep automatic playback free of rectangular confetti clutter; track beat/chapter state cleanly
+    this.lastBeatIndex = beat.beatIndex;
+    this.lastChapterId = chapter.id;
 
     // Dynamic camera punch + whip-cut transition kinematics
     const cutZoomBoost = reducedMotion ? 0 : shotInfo.cutTransition * 0.075;
@@ -255,6 +236,11 @@ export class MVCanvasRenderer {
     ctx.rotate(this.camTilt);
     ctx.translate(-cx, -cy);
 
+    const lyricIdx = getActiveLyricIndex(timeSec);
+    const activeLine = LYRIC_LINES[lyricIdx] ?? LYRIC_LINES[0];
+    const nextLine =
+      lyricIdx + 1 < LYRIC_LINES.length ? LYRIC_LINES[lyricIdx + 1] : null;
+
     const shotCtx: ShotContext = {
       ctx,
       w: width,
@@ -263,6 +249,8 @@ export class MVCanvasRenderer {
       scrollDist: this.scrollDist,
       wheelAngle: this.wheelAngle,
       lineProgress: shotInfo.lineProgress,
+      activeLine,
+      nextLine,
       chapter,
       beat,
       bands,
@@ -270,8 +258,11 @@ export class MVCanvasRenderer {
       reducedMotion,
     };
 
-    // 1. Dispatch to the exact lyric-matched cinematic Shot Composer!
+    // 1. Dispatch to the exact lyric-matched cinematic Shot Composer (includes midground-occluded sky lyrics)!
     this.dispatchShot(shotInfo, shotCtx);
+
+    // 1b. Render surface-coupled diegetic lyrics inside the active camera world!
+    renderSurfaceDiegeticLyrics(shotCtx, shotInfo.shot);
 
     // 2. Subtle audio spectrum pulse along lower frame
     this.drawSubtleSpectrum(ctx, width, height, chapter, beat, bands);
@@ -279,8 +270,10 @@ export class MVCanvasRenderer {
     // 3. Foreground particles & interactive Priority luggage tags
     this.updateAndDrawParticles(ctx, width, height, safeDt, reducedMotion);
 
-    // 4. Radial speed lines during explosive Chorus / Finale drops
-    if (!reducedMotion && isHighEnergy && shotInfo.shot !== 'sunset_horizon_outro') {
+    // 4. Peripheral anamorphic light streaks ONLY on explosive hero / triptych chorus shots
+    const wantsImpactStreaks =
+      shotInfo.shot === 'chorus_hero_low' || shotInfo.shot === 'split_triptych';
+    if (!reducedMotion && isHighEnergy && wantsImpactStreaks) {
       this.drawSpeedLines(ctx, width, height, chapter, beat);
     }
 
@@ -377,26 +370,29 @@ export class MVCanvasRenderer {
     beat: BeatState,
     bands: AudioBands
   ): void {
-    const barCount = 48;
-    const totalW = Math.min(w * 0.86, 1040);
-    const startX = (w - totalW) * 0.5;
-    const step = totalW / barCount;
-    const baseY = h * 0.77;
+    const amp = beat.kickPulse * 11 + beat.snarePulse * 7 + bands.overall * 10;
+    if (amp < 1.2) return;
 
-    ctx.fillStyle = chapter.accentHex;
-    for (let i = 0; i < barCount; i++) {
-      const mirrorDist = Math.abs(i - (barCount - 1) * 0.5) / (barCount * 0.5);
-      const wave = Math.abs(Math.sin(i * 0.55 + this.scrollDist * 0.018));
-      const bh = Math.max(
-        2,
-        (1 - mirrorDist * 0.55) *
-          (beat.kickPulse * 28 + beat.snarePulse * 18 + bands.overall * 24 + chapter.energyBase * 8) *
-          (0.35 + wave * 0.65)
-      );
-      ctx.globalAlpha = 0.16 + (1 - mirrorDist) * 0.24;
-      ctx.fillRect(startX + i * step + 2, baseY - bh, Math.max(2.5, step - 5), bh);
+    ctx.save();
+    ctx.strokeStyle = chapter.accentHex;
+    ctx.globalAlpha = 0.16;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    const span = w * 0.68;
+    const x0 = (w - span) * 0.5;
+    for (let i = 0; i <= 56; i++) {
+      const t = i / 56;
+      const env = Math.sin(t * Math.PI);
+      const x = x0 + t * span;
+      const y =
+        h -
+        4 -
+        Math.abs(Math.sin(i * 0.42 + this.scrollDist * 0.014)) * amp * env;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
-    ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private updateAndDrawParticles(
@@ -415,7 +411,7 @@ export class MVCanvasRenderer {
         continue;
       }
       if (!reducedMotion) {
-        p.vy += (p.isConfetti ? 260 : 380) * dt;
+        p.vy += (p.isConfetti ? 230 : 340) * dt;
         p.x += (p.vx * dt) / w;
         p.y += (p.vy * dt) / h;
         p.rot += p.vRot * dt;
@@ -430,7 +426,7 @@ export class MVCanvasRenderer {
         ctx.fillRect(-p.size * 0.6, -p.size * 0.35, p.size * 1.2, p.size * 0.7);
       } else {
         ctx.beginPath();
-        ctx.arc(0, 0, p.size * 0.5, 0, Math.PI * 2);
+        ctx.arc(0, 0, p.size * 0.55, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();
@@ -480,17 +476,19 @@ export class MVCanvasRenderer {
   ): void {
     const cx = w * 0.5;
     const cy = h * 0.52;
-    const outerR = Math.hypot(w, h) * 0.58;
-    const innerR = Math.min(w, h) * (0.38 - beat.kickPulse * 0.05);
-    const count = 26;
+    const outerR = Math.hypot(w, h) * 0.62;
+    const innerR = Math.min(w, h) * (0.44 - beat.kickPulse * 0.04);
+    const count = 18;
 
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
     ctx.strokeStyle = chapter.accentHex;
-    ctx.globalAlpha = 0.12 + beat.kickPulse * 0.24;
-    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.07 + beat.kickPulse * 0.16;
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + beat.barIndex * 0.37;
-      const jitter = ((i * 7) % 5) * 18;
+      const angle = (i / count) * Math.PI * 2 + beat.barIndex * 0.31;
+      const jitter = ((i * 7) % 5) * 16;
       ctx.moveTo(
         cx + Math.cos(angle) * (innerR + jitter),
         cy + Math.sin(angle) * (innerR + jitter)
@@ -498,7 +496,7 @@ export class MVCanvasRenderer {
       ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
     }
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   private drawPostFraming(
@@ -511,14 +509,20 @@ export class MVCanvasRenderer {
     cameraMode: CameraMode,
     reducedMotion: boolean
   ): void {
-    // Measured top & bottom editorial scrim ensuring >= 7:1 contrast for kinetic lyrics
-    const scrim = ctx.createLinearGradient(0, 0, 0, h);
-    scrim.addColorStop(0, 'rgba(9, 9, 11, 0.82)');
-    scrim.addColorStop(0.24, 'rgba(9, 9, 11, 0.34)');
-    scrim.addColorStop(0.42, 'rgba(9, 9, 11, 0.02)');
-    scrim.addColorStop(0.75, 'rgba(9, 9, 11, 0.18)');
-    scrim.addColorStop(1, 'rgba(9, 9, 11, 0.9)');
-    ctx.fillStyle = scrim;
+    // Soft Kodak Vision3 warm upper-corner halation + balanced cinema perimeter vignette
+    const outerR = Math.hypot(w * 0.5, h * 0.5);
+    const vignette = ctx.createRadialGradient(
+      w * 0.5,
+      h * 0.5,
+      outerR * 0.46,
+      w * 0.5,
+      h * 0.5,
+      outerR * 1.04
+    );
+    vignette.addColorStop(0, 'rgba(9, 9, 11, 0)');
+    vignette.addColorStop(0.72, 'rgba(9, 9, 11, 0.18)');
+    vignette.addColorStop(1, 'rgba(6, 6, 9, 0.64)');
+    ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, w, h);
 
     // Subtle film-cut shutter flash on shot transitions & chorus drops

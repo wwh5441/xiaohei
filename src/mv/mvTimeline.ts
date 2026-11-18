@@ -36,6 +36,52 @@ export interface ActiveShotInfo {
   lineProgress: number; // 0..1 progress within active lyric line
 }
 
+export type LyricSpatialZone =
+  | 'sky_upper_left'
+  | 'sky_upper_right'
+  | 'stage_lower_left'
+  | 'stage_lower_right'
+  | 'poetic_vertical_right'
+  | 'poetic_vertical_left'
+  | 'chorus_impact_left'
+  | 'chorus_impact_right'
+  | 'monolith_bottom_center'
+  | 'horizon_upper_center';
+
+export interface LyricStagePlacement {
+  zone: LyricSpatialZone;
+  align: 'left' | 'center' | 'right';
+  orientation: 'horizontal' | 'vertical';
+  tiltDeg: number;
+  showNextPreview: boolean;
+}
+
+export interface TwoBoneIKResult {
+  elbowX: number;
+  elbowY: number;
+  handX: number;
+  handY: number;
+}
+
+export interface LegStrideSample {
+  ankleOffsetX: number; // in normalized character units `u` (+forward, -backward)
+  ankleLiftY: number; // >= 0 upward lift above standing ankle height in `u`
+  footPitch: number; // radians: negative = heel-strike dorsiflexion, positive = toe-off plantarflexion
+  heelOff: number; // 0..1 heel peel-off ratio during late stance push-off
+  isGrounded: boolean;
+}
+
+export interface HumanStridePose {
+  nearLeg: LegStrideSample;
+  farLeg: LegStrideSample;
+  pelvisBobY: number; // in `u`: positive = upward passing peak, negative = downward weight-acceptance cushion
+  spineLean: number; // radians forward lean
+  torsoTwist: number; // -1..1 shoulder counter-rotation relative to pelvis
+  farArmSwingX: number; // in `u` counter-swing of free arm
+  farArmLiftY: number; // in `u` subtle vertical arc of free arm
+  headNod: number; // radians subtle natural head stabilization
+}
+
 export interface ParsedId3Cover {
   mimeType: string;
   imageBytes: Uint8Array;
@@ -44,6 +90,420 @@ export interface ParsedId3Cover {
 export function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * Analytical 2-bone inverse kinematics solver (shoulder/hip -> elbow/knee -> wrist/ankle).
+ * Preserves exact bone lengths len1 and len2 when target is within reach, and clamps
+ * cleanly along the target vector if stretched beyond (len1 + len2).
+ */
+export function solveTwoBoneIK(
+  rootX: number,
+  rootY: number,
+  targetX: number,
+  targetY: number,
+  len1: number,
+  len2: number,
+  bendSign: 1 | -1 = 1
+): TwoBoneIKResult {
+  const dx = targetX - rootX;
+  const dy = targetY - rootY;
+  const rawDist = Math.hypot(dx, dy);
+  const minDist = Math.abs(len1 - len2) + 1e-3;
+  const maxDist = len1 + len2 - 1e-3;
+
+  if (rawDist < 1e-5) {
+    return {
+      elbowX: rootX + len1,
+      elbowY: rootY,
+      handX: rootX + len1 - len2,
+      handY: rootY,
+    };
+  }
+
+  const clampedDist = Math.max(minDist, Math.min(maxDist, rawDist));
+  const ux = dx / rawDist;
+  const uy = dy / rawDist;
+
+  // Law of cosines for angle at root joint
+  const cosA = Math.max(
+    -1,
+    Math.min(1, (len1 * len1 + clampedDist * clampedDist - len2 * len2) / (2 * len1 * clampedDist))
+  );
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA)) * bendSign;
+
+  const dirX = ux * cosA - uy * sinA;
+  const dirY = ux * sinA + uy * cosA;
+
+  const elbowX = rootX + dirX * len1;
+  const elbowY = rootY + dirY * len1;
+  const handX = rawDist <= maxDist ? targetX : rootX + ux * maxDist;
+  const handY = rawDist <= maxDist ? targetY : rootY + uy * maxDist;
+
+  return { elbowX, elbowY, handX, handY };
+}
+
+/**
+ * Gravity-true human arm IK solver: evaluates both anatomical elbow solutions and selects
+ * the natural downward-hanging elbow (larger screen Y in +Y-down canvas coordinates),
+ * preventing inverted "mantis/dislocated" elbows regardless of facing or reach direction.
+ */
+export function solveGravityArmIK(
+  shoulderX: number,
+  shoulderY: number,
+  wristX: number,
+  wristY: number,
+  upperLen: number,
+  foreLen: number,
+  preferElbowOffsetX = 0
+): TwoBoneIKResult {
+  const pos = solveTwoBoneIK(shoulderX, shoulderY, wristX, wristY, upperLen, foreLen, 1);
+  const neg = solveTwoBoneIK(shoulderX, shoulderY, wristX, wristY, upperLen, foreLen, -1);
+
+  if (Math.abs(pos.elbowY - neg.elbowY) > 0.5) {
+    return pos.elbowY >= neg.elbowY ? pos : neg;
+  }
+  if (preferElbowOffsetX !== 0) {
+    const posScore = (pos.elbowX - shoulderX) * Math.sign(preferElbowOffsetX);
+    const negScore = (neg.elbowX - shoulderX) * Math.sign(preferElbowOffsetX);
+    return posScore >= negScore ? pos : neg;
+  }
+  return pos;
+}
+
+function sampleSingleLegStride(phase01: number, strideRadiusU: number): LegStrideSample {
+  const s = ((phase01 % 1) + 1) % 1;
+  const stanceSplit = 0.58;
+
+  if (s < stanceSplit) {
+    // Grounded Stance Phase: constant linear ground speed from front (+R) to rear (-R) -> zero foot skating!
+    const uStance = s / stanceSplit;
+    const ankleOffsetX = (1 - 2 * uStance) * strideRadiusU;
+
+    if (uStance < 0.15) {
+      // Crisp heel strike -> foot flat weight acceptance
+      const k = 1 - uStance / 0.15;
+      return {
+        ankleOffsetX,
+        ankleLiftY: 0.9 * k,
+        footPitch: -0.2 * k,
+        heelOff: 0,
+        isGrounded: true,
+      };
+    }
+
+    if (uStance < 0.68) {
+      // Tall, upright mid-stance support
+      return {
+        ankleOffsetX,
+        ankleLiftY: 0,
+        footPitch: 0,
+        heelOff: 0,
+        isGrounded: true,
+      };
+    }
+
+    // Late stance heel-peel & toe push-off (ball of foot stays planted while heel peels up)
+    const peel = (uStance - 0.68) / 0.32;
+    return {
+      ankleOffsetX,
+      ankleLiftY: 4.2 * peel * peel,
+      footPitch: 0.3 * peel,
+      heelOff: peel,
+      isGrounded: true,
+    };
+  }
+
+  // Swing Phase: natural bent-knee forward recovery from rear (-R) to front (+R)
+  const uSwing = (s - stanceSplit) / (1 - stanceSplit);
+  const swingEase = 0.5 - 0.5 * Math.cos(Math.PI * uSwing);
+  const ankleOffsetX = (-1 + 2 * swingEase) * strideRadiusU;
+  const ankleLiftY =
+    Math.sin(Math.PI * Math.pow(uSwing, 0.85)) * 14.2 +
+    4.2 * Math.pow(1 - uSwing, 2.2);
+  const footPitch = 0.28 * Math.pow(1 - uSwing, 1.9) - 0.2 * Math.pow(uSwing, 1.55);
+
+  return {
+    ankleOffsetX,
+    ankleLiftY,
+    footPitch,
+    heelOff: 0,
+    isGrounded: false,
+  };
+}
+
+/**
+ * Biomechanical 8-phase human walk cycle solver:
+ * Calibrated for 1:7.5 upright adult proportions so the stance leg stands tall (~99% extension)
+ * while the swinging leg clears the ground with natural forward knee flexion.
+ */
+export function computeHumanStridePose(
+  walkPhaseRad: number,
+  strideRadiusU = 19.5
+): HumanStridePose {
+  const cycle01 = ((walkPhaseRad / (Math.PI * 2)) % 1 + 1) % 1;
+  const nearLeg = sampleSingleLegStride(cycle01, strideRadiusU);
+  const farLeg = sampleSingleLegStride(cycle01 + 0.5, strideRadiusU);
+
+  // Subtle double-frequency pelvis wave: slight cushion at double-support, tall passing peak at mid-stance
+  const pelvisBobY = -Math.cos((cycle01 * 2 - 0.08) * Math.PI * 2) * 1.45;
+  const torsoTwist = -Math.cos(cycle01 * Math.PI * 2);
+  const farArmSwingX = -nearLeg.ankleOffsetX * 0.62;
+  const farArmLiftY = Math.max(0, farArmSwingX) * 0.16 + Math.abs(farArmSwingX) * 0.06;
+  const spineLean = 0.038 + Math.sin(cycle01 * Math.PI * 4) * 0.005;
+  const headNod = 0.012 - pelvisBobY * 0.003;
+
+  return {
+    nearLeg,
+    farLeg,
+    pelvisBobY,
+    spineLean,
+    torsoTwist,
+    farArmSwingX,
+    farArmLiftY,
+    headNod,
+  };
+}
+
+/**
+ * Maps each lyric line and active camera shot to the compositional negative space
+ * of that exact shot so lyrics act as an organic visual element of the frame.
+ */
+export function resolveLyricStagePlacement(
+  line: LyricLine,
+  shot: ShotType,
+  _cameraMode: CameraMode = 'auto'
+): LyricStagePlacement {
+  const numericId = Number(line.id.replace(/\D+/g, '')) || 1;
+  const isEven = numericId % 2 === 0;
+
+  switch (shot) {
+    case 'guitar_macro':
+      // Soundhole at (0.44w, 0.56h), bridge on right -> open upper-left amber studio space
+      return {
+        zone: 'sky_upper_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'traveler_wide':
+      // Sunset at right (0.72w), Traveler + RIMOWA walking in lower-mid -> open upper-left sky
+      return {
+        zone: 'sky_upper_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'boots_wheels_low':
+      // Low-angle RIMOWA & striding boots on asphalt -> open upper-right dramatic sky
+      return {
+        zone: 'sky_upper_right',
+        align: 'right',
+        orientation: 'horizontal',
+        tiltDeg: -1.5,
+        showNextPreview: true,
+      };
+
+    case 'scuffed_shell_closeup':
+      // Diagonal matte-black grooved shell in center -> poetic vertical-rl along right margin
+      return {
+        zone: 'poetic_vertical_right',
+        align: 'right',
+        orientation: 'vertical',
+        tiltDeg: 0,
+        showNextPreview: false,
+      };
+
+    case 'priority_tags_macro':
+      // Stacked airline tags -> tilted luggage-label lockup in lower-left negative space
+      return {
+        zone: 'stage_lower_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: -2,
+        showNextPreview: false,
+      };
+
+    case 'open_suitcase':
+      // Overhead unzipped RIMOWA centered -> clean editorial upper-left studio space
+      return {
+        zone: 'sky_upper_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'crossroads_pov':
+      // Converging highway gantries overhead -> kinetic lower-left road shoulder
+      return {
+        zone: isEven ? 'stage_lower_left' : 'stage_lower_right',
+        align: isEven ? 'left' : 'right',
+        orientation: 'horizontal',
+        tiltDeg: isEven ? -2 : 2,
+        showNextPreview: false,
+      };
+
+    case 'chorus_hero_low':
+      // Heroic Traveler + RIMOWA silhouette on crest -> dynamic alternating diagonal slams
+      return {
+        zone: isEven ? 'chorus_impact_left' : 'chorus_impact_right',
+        align: isEven ? 'left' : 'right',
+        orientation: 'horizontal',
+        tiltDeg: isEven ? -2.5 : -1.8,
+        showNextPreview: false,
+      };
+
+    case 'split_triptych':
+      // 3-panel diagonal montage -> punchy lower-left kinetic lockup anchoring the cut
+      return {
+        zone: 'stage_lower_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: -1.5,
+        showNextPreview: false,
+      };
+
+    case 'shoulder_companion':
+      // Traveler & RIMOWA on terrace parapet on center-right -> open upper-left city bokeh
+      return {
+        zone: 'sky_upper_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'fortress_monolith':
+      // Symmetrical geometric bastion centered -> monumental bottom-center architectural title
+      return {
+        zone: 'monolith_bottom_center',
+        align: 'center',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: false,
+      };
+
+    case 'turntable_carousel':
+      // Overhead spinning baggage vinyl -> lower-left groove caption
+      return {
+        zone: 'stage_lower_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'airport_delay_rain':
+      // Seated traveler at lower-left/mid, DELAYED board at top-right -> alternate upper-left glass & lower-right wet floor reflection!
+      return isEven
+        ? {
+            zone: 'stage_lower_right',
+            align: 'right',
+            orientation: 'horizontal',
+            tiltDeg: 0,
+            showNextPreview: true,
+          }
+        : {
+            zone: 'sky_upper_left',
+            align: 'left',
+            orientation: 'horizontal',
+            tiltDeg: 0,
+            showNextPreview: true,
+          };
+
+    case 'handle_warmth_macro':
+      // Hand & sleeve enter from right to center -> warm bokeh negative space at upper-left
+      return {
+        zone: 'sky_upper_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'concourse_parting':
+      // Spotlight duo in center -> calm upper-right concourse void
+      return {
+        zone: 'sky_upper_right',
+        align: 'right',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'tree_hollow_poetic':
+      // Glowing tree hollow in center -> vertical Chinese poetry floating beside fireflies on right
+      return {
+        zone: 'poetic_vertical_right',
+        align: 'right',
+        orientation: 'vertical',
+        tiltDeg: 0,
+        showNextPreview: false,
+      };
+
+    case 'whistle_coastal':
+      // Whistle waves across upper sky -> breezy lower-left coastal cliff foreground
+      return {
+        zone: 'stage_lower_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: -1,
+        showNextPreview: true,
+      };
+
+    case 'timelapse_nostalgia':
+      // Center nostalgic circle vs horizontal neon blur -> vertical poetic left column
+      return {
+        zone: 'poetic_vertical_left',
+        align: 'left',
+        orientation: 'vertical',
+        tiltDeg: 0,
+        showNextPreview: false,
+      };
+
+    case 'home_doorway_sun':
+      // Door + resting RIMOWA on left, polaroids mid-right -> alternate upper-right wall & vertical poetic right
+      return isEven
+        ? {
+            zone: 'sky_upper_right',
+            align: 'right',
+            orientation: 'horizontal',
+            tiltDeg: 0,
+            showNextPreview: true,
+          }
+        : {
+            zone: 'poetic_vertical_right',
+            align: 'right',
+            orientation: 'vertical',
+            tiltDeg: 0,
+            showNextPreview: false,
+          };
+
+    case 'nametag_dream_macro':
+      // Swinging cognac leather tag in center -> lower-left warm dream space
+      return {
+        zone: 'stage_lower_left',
+        align: 'left',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: true,
+      };
+
+    case 'sunset_horizon_outro':
+      // Vast sunset horizon -> serene upper-center closing credits
+      return {
+        zone: 'horizon_upper_center',
+        align: 'center',
+        orientation: 'horizontal',
+        tiltDeg: 0,
+        showNextPreview: false,
+      };
+  }
 }
 
 export function formatTimecode(seconds: number): string {

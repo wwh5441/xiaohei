@@ -20,7 +20,9 @@ import {
   computeBeatState,
   getActiveChapter,
   getActiveLyricIndex,
+  getLyricProgress,
   resolveActiveShot,
+  resolveLyricStagePlacement,
 } from './mv/mvTimeline';
 
 const HEADER_SCENE_LINKS = [
@@ -54,7 +56,8 @@ export default function App() {
   const [duration, setDuration] = useState<number>(SONG_META.durationSec);
   const [cameraMode, setCameraMode] = useState<CameraMode>('auto');
   const [isMuted, setIsMuted] = useState(false);
-  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockRevealedWhilePlaying, setDockRevealedWhilePlaying] = useState(false);
+  const [dockForceHidden, setDockForceHidden] = useState(false);
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
@@ -62,6 +65,8 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const analyzerRef = useRef<MVAudioAnalyzer | null>(null);
   const rendererRef = useRef<MVCanvasRenderer | null>(null);
+  const hideDockTimerRef = useRef<number>(0);
+  const hoveringDockRef = useRef<boolean>(false);
 
   const liveStateRef = useRef({
     isPlaying: false,
@@ -70,6 +75,63 @@ export default function App() {
     cameraMode: 'auto' as CameraMode,
     reducedMotion: false,
   });
+
+  // During playback, bottom dock auto-hides unless hovered/revealed or LyricsDrawer is open.
+  // When paused, bottom dock stays visible unless manually force-hidden via H.
+  const dockVisible = isPlaying
+    ? dockRevealedWhilePlaying || lyricsOpen
+    : !dockForceHidden || lyricsOpen;
+
+  const clearHideDockTimer = useCallback(() => {
+    if (hideDockTimerRef.current) {
+      window.clearTimeout(hideDockTimerRef.current);
+      hideDockTimerRef.current = 0;
+    }
+  }, []);
+
+  const scheduleAutoHideDock = useCallback(
+    (delayMs = 2400) => {
+      clearHideDockTimer();
+      hideDockTimerRef.current = window.setTimeout(() => {
+        if (!hoveringDockRef.current && liveStateRef.current.isPlaying) {
+          setDockRevealedWhilePlaying(false);
+        }
+      }, delayMs);
+    },
+    [clearHideDockTimer]
+  );
+
+  const revealDockTemporarily = useCallback(
+    (delayMs = 2600) => {
+      setDockForceHidden(false);
+      setDockRevealedWhilePlaying(true);
+      if (liveStateRef.current.isPlaying && !hoveringDockRef.current) {
+        scheduleAutoHideDock(delayMs);
+      }
+    },
+    [scheduleAutoHideDock]
+  );
+
+  const hideDockNow = useCallback(() => {
+    clearHideDockTimer();
+    hoveringDockRef.current = false;
+    setDockRevealedWhilePlaying(false);
+    if (!liveStateRef.current.isPlaying) {
+      setDockForceHidden(true);
+    }
+  }, [clearHideDockTimer]);
+
+  const toggleDockVisibility = useCallback(() => {
+    if (dockVisible) {
+      hideDockNow();
+    } else {
+      revealDockTemporarily(4200);
+    }
+  }, [dockVisible, hideDockNow, revealDockTemporarily]);
+
+  useEffect(() => {
+    return () => clearHideDockTimer();
+  }, [clearHideDockTimer]);
 
   useEffect(() => {
     liveStateRef.current.cameraMode = cameraMode;
@@ -102,64 +164,78 @@ export default function App() {
     };
   }, []);
 
-  const startPlayback = useCallback(async (seekSec?: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  const startPlayback = useCallback(
+    async (seekSec?: number, hideBottomImmediately = true) => {
+      const audio = audioRef.current;
+      if (!audio) return;
 
-    if (typeof seekSec === 'number') {
-      audio.currentTime = seekSec;
-      liveStateRef.current.virtualTime = seekSec;
-      setCurrentTime(seekSec);
-    }
-
-    setShowPoster(false);
-
-    const hasActivation =
-      typeof navigator !== 'undefined' &&
-      Boolean(navigator.userActivation?.isActive || navigator.userActivation?.hasBeenActive);
-
-    if (hasActivation) {
-      if (!analyzerRef.current) {
-        analyzerRef.current = new MVAudioAnalyzer();
+      if (typeof seekSec === 'number') {
+        audio.currentTime = seekSec;
+        liveStateRef.current.virtualTime = seekSec;
+        setCurrentTime(seekSec);
       }
-      analyzerRef.current.attach(audio);
-    }
 
-    try {
-      audio.muted = false;
-      setIsMuted(false);
-      await audio.play();
-      liveStateRef.current.usingVirtualClock = false;
-      liveStateRef.current.isPlaying = true;
-      setIsPlaying(true);
-    } catch {
+      setShowPoster(false);
+      setDockForceHidden(false);
+      if (hideBottomImmediately) {
+        clearHideDockTimer();
+        setDockRevealedWhilePlaying(false);
+      } else {
+        scheduleAutoHideDock(2000);
+      }
+
+      const hasActivation =
+        typeof navigator !== 'undefined' &&
+        Boolean(
+          navigator.userActivation?.isActive || navigator.userActivation?.hasBeenActive
+        );
+
+      if (hasActivation) {
+        if (!analyzerRef.current) {
+          analyzerRef.current = new MVAudioAnalyzer();
+        }
+        analyzerRef.current.attach(audio);
+      }
+
       try {
-        audio.muted = true;
-        setIsMuted(true);
+        audio.muted = false;
+        setIsMuted(false);
         await audio.play();
         liveStateRef.current.usingVirtualClock = false;
         liveStateRef.current.isPlaying = true;
         setIsPlaying(true);
       } catch {
-        liveStateRef.current.usingVirtualClock = true;
-        liveStateRef.current.isPlaying = true;
-        setIsPlaying(true);
+        try {
+          audio.muted = true;
+          setIsMuted(true);
+          await audio.play();
+          liveStateRef.current.usingVirtualClock = false;
+          liveStateRef.current.isPlaying = true;
+          setIsPlaying(true);
+        } catch {
+          liveStateRef.current.usingVirtualClock = true;
+          liveStateRef.current.isPlaying = true;
+          setIsPlaying(true);
+        }
       }
-    }
-  }, []);
+    },
+    [clearHideDockTimer, scheduleAutoHideDock]
+  );
 
   const pausePlayback = useCallback(() => {
     const audio = audioRef.current;
     audio?.pause();
     liveStateRef.current.isPlaying = false;
     setIsPlaying(false);
-  }, []);
+    setDockForceHidden(false);
+    clearHideDockTimer();
+  }, [clearHideDockTimer]);
 
   const togglePlay = useCallback(() => {
     if (liveStateRef.current.isPlaying) {
       pausePlayback();
     } else {
-      void startPlayback();
+      void startPlayback(undefined, !hoveringDockRef.current);
     }
   }, [pausePlayback, startPlayback]);
 
@@ -177,7 +253,7 @@ export default function App() {
   );
 
   const handleRestart = useCallback(() => {
-    void startPlayback(0);
+    void startPlayback(0, true);
   }, [startPlayback]);
 
   const handleToggleMute = useCallback(() => {
@@ -187,7 +263,7 @@ export default function App() {
     audio.muted = nextMuted;
     setIsMuted(nextMuted);
     if (!nextMuted && liveStateRef.current.usingVirtualClock) {
-      void startPlayback(liveStateRef.current.virtualTime);
+      void startPlayback(liveStateRef.current.virtualTime, !hoveringDockRef.current);
     }
   }, [startPlayback]);
 
@@ -214,7 +290,7 @@ export default function App() {
 
   useEffect(() => {
     if (initialAutostart) {
-      void startPlayback(initialSeekSec);
+      void startPlayback(initialSeekSec, true);
     }
   }, [initialAutostart, initialSeekSec, startPlayback]);
 
@@ -293,7 +369,7 @@ export default function App() {
         }
       }
 
-      const uiIntervalMs = isSoftwareRenderer ? 160 : 65;
+      const uiIntervalMs = isSoftwareRenderer ? 140 : 60;
       if (now - lastUiSyncNow > uiIntervalMs) {
         lastUiSyncNow = now;
         setCurrentTime(t);
@@ -345,7 +421,7 @@ export default function App() {
       if (e.code === 'Space' && tagName !== 'BUTTON') {
         e.preventDefault();
         if (showPoster) {
-          void startPlayback(0);
+          void startPlayback(0, true);
         } else {
           togglePlay();
         }
@@ -358,7 +434,7 @@ export default function App() {
       } else if (e.code === 'KeyB') {
         triggerCenterSticker();
       } else if (e.code === 'KeyH') {
-        setDockCollapsed((prev) => !prev);
+        toggleDockVisibility();
       } else if (e.code === 'KeyL') {
         setLyricsOpen((prev) => !prev);
       } else if (e.code === 'Escape' && lyricsOpen) {
@@ -368,16 +444,32 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [lyricsOpen, seekTo, showPoster, startPlayback, togglePlay, triggerCenterSticker]);
+  }, [
+    lyricsOpen,
+    seekTo,
+    showPoster,
+    startPlayback,
+    toggleDockVisibility,
+    togglePlay,
+    triggerCenterSticker,
+  ]);
 
   const activeChapter = useMemo(() => getActiveChapter(currentTime), [currentTime]);
   const activeLyricIndex = useMemo(() => getActiveLyricIndex(currentTime), [currentTime]);
   const activeLine = LYRIC_LINES[activeLyricIndex] ?? LYRIC_LINES[0];
   const nextLine =
     activeLyricIndex + 1 < LYRIC_LINES.length ? LYRIC_LINES[activeLyricIndex + 1] : null;
+  const activeLineProgress = useMemo(
+    () => getLyricProgress(activeLine, currentTime),
+    [activeLine, currentTime]
+  );
   const activeShotInfo = useMemo(
     () => resolveActiveShot(currentTime, cameraMode, computeBeatState(currentTime)),
     [cameraMode, currentTime]
+  );
+  const activePlacement = useMemo(
+    () => resolveLyricStagePlacement(activeLine, activeShotInfo.shot, cameraMode),
+    [activeLine, activeShotInfo.shot, cameraMode]
   );
 
   useEffect(() => {
@@ -388,10 +480,29 @@ export default function App() {
       : 'paused';
     document.body.dataset.chapter = activeChapter.id;
     document.body.dataset.shot = activeShotInfo.shot;
-  }, [activeChapter.id, activeShotInfo.shot, isPlaying, showPoster]);
+    document.body.dataset.dock = dockVisible ? 'visible' : 'hidden';
+    document.body.dataset.lyricZone = activePlacement.zone;
+  }, [
+    activeChapter.id,
+    activePlacement.zone,
+    activeShotInfo.shot,
+    dockVisible,
+    isPlaying,
+    showPoster,
+  ]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-zinc-950 select-none">
+    <div
+      onPointerMove={(e) => {
+        if (showPoster) return;
+        const nearBottom = e.clientY >= window.innerHeight - 92;
+        const nearTop = e.clientY <= 52;
+        if (nearBottom || nearTop) {
+          revealDockTemporarily(2600);
+        }
+      }}
+      className="relative w-screen h-screen overflow-hidden bg-zinc-950 select-none"
+    >
       <audio
         ref={audioRef}
         src={AUDIO_SRC}
@@ -399,6 +510,13 @@ export default function App() {
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) setDuration(d);
+        }}
+        onSeeking={(e) => {
+          const t = e.currentTarget.currentTime;
+          if (Number.isFinite(t)) {
+            liveStateRef.current.virtualTime = t;
+            setCurrentTime(t);
+          }
         }}
         onPlay={() => {
           liveStateRef.current.isPlaying = true;
@@ -416,7 +534,7 @@ export default function App() {
         }}
       />
 
-      {!showPoster && !dockCollapsed && (
+      {!showPoster && dockVisible && (
         <header className="fixed inset-x-0 top-0 z-30 flex items-center justify-between gap-8 px-6 py-3.5 bg-gradient-to-b from-zinc-950/90 to-transparent">
           <button
             type="button"
@@ -437,7 +555,7 @@ export default function App() {
                 aria-label={`高光直达：${item.label}`}
                 onClick={() => {
                   seekTo(item.time);
-                  if (!isPlaying) void startPlayback(item.time);
+                  if (!isPlaying) void startPlayback(item.time, true);
                 }}
                 className="hover:text-amber-300 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
@@ -468,6 +586,19 @@ export default function App() {
         </header>
       )}
 
+      {/* Keep unmute CTA accessible even in pure auto-hidden cinema playback if browser muted autoplay */}
+      {!showPoster && !dockVisible && isMuted && (
+        <div className="fixed top-4 right-4 z-30">
+          <button
+            type="button"
+            onClick={handleToggleMute}
+            className="rounded-lg bg-amber-400 px-3.5 py-1.5 text-xs font-bold text-zinc-950 hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            开启声音
+          </button>
+        </div>
+      )}
+
       <main className="relative w-full h-full">
         <canvas
           ref={canvasRef}
@@ -486,7 +617,9 @@ export default function App() {
           <KineticLyricsOverlay
             activeLine={activeLine}
             nextLine={nextLine}
-            dockCollapsed={dockCollapsed}
+            lineProgress={activeLineProgress}
+            placement={activePlacement}
+            dockVisible={dockVisible}
           />
         )}
       </main>
@@ -497,7 +630,7 @@ export default function App() {
           activeLyricId={activeLine.id}
           onSeekToLine={(timeSec) => {
             seekTo(timeSec);
-            if (!isPlaying) void startPlayback(timeSec);
+            if (!isPlaying) void startPlayback(timeSec, false);
           }}
           onClose={() => setLyricsOpen(false)}
         />
@@ -512,15 +645,32 @@ export default function App() {
           activeShotLabel={activeShotInfo.label}
           cameraMode={cameraMode}
           isMuted={isMuted}
-          dockCollapsed={dockCollapsed}
+          dockVisible={dockVisible}
           lyricsOpen={lyricsOpen}
           onTogglePlay={togglePlay}
-          onSeek={seekTo}
+          onSeek={(sec) => {
+            seekTo(sec);
+            revealDockTemporarily(2800);
+          }}
           onRestart={handleRestart}
-          onChangeCameraMode={setCameraMode}
+          onChangeCameraMode={(mode) => {
+            setCameraMode(mode);
+            revealDockTemporarily(2600);
+          }}
           onToggleMute={handleToggleMute}
           onTriggerSticker={triggerCenterSticker}
-          onToggleDock={() => setDockCollapsed((prev) => !prev)}
+          onShowDock={() => revealDockTemporarily(4200)}
+          onHideDock={hideDockNow}
+          onDockPointerEnter={() => {
+            hoveringDockRef.current = true;
+            clearHideDockTimer();
+          }}
+          onDockPointerLeave={() => {
+            hoveringDockRef.current = false;
+            if (liveStateRef.current.isPlaying) {
+              scheduleAutoHideDock(2000);
+            }
+          }}
           onToggleLyrics={() => setLyricsOpen((prev) => !prev)}
         />
       )}
@@ -529,7 +679,7 @@ export default function App() {
         <IntroPoster
           coverUrl={coverUrl}
           onStartMV={(sec) => {
-            void startPlayback(sec ?? 0);
+            void startPlayback(sec ?? 0, true);
           }}
         />
       )}

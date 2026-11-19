@@ -167,6 +167,8 @@ export interface TravelStickerSpec {
 }
 
 export const AUDIO_SRC = '/assets/aistudio/Ham_-______3c70d5e7.mp3';
+/** The studio MP3 file contains 2.95s of -260dB digital silence padding at 0.00s..2.95s before the first guitar note. */
+export const AUDIO_INTRO_SOUND_START_SEC = 2.92;
 
 export const SONG_META = {
   title: '嘿！小黑',
@@ -626,7 +628,7 @@ export const SHOT_SPECS: Record<ShotType, ShotSpec> = {
     panStartX: -0.015,
     panEndX: 0.015,
   }),
-  s58_sparkling_runway_wheels: mkShot('S58', 's58_sparkling_runway_wheels', '金色大道中心线四轮疾驰光轨微距', 35, 'stage_lower_right', 'surface_coupled', {
+  s58_sparkling_runway_wheels: mkShot('S58', 's58_sparkling_runway_wheels', '金色大道中心线四轮疾驰光轨微距', 35, 'horizon_upper_center', 'surface_coupled', {
     suppressSparks: false,
     instantSlam: true,
   }),
@@ -677,7 +679,7 @@ export const LYRIC_LINES: LyricLine[] = [
   {
     id: 'l-01',
     startTime: 0.0,
-    endTime: 3.25,
+    endTime: 5.75,
     text: 'Ham ·《嘿！小黑》',
     echoText: 'To 我的好朋友 · 电影级分镜 MV',
     emphasis: '嘿！小黑',
@@ -689,7 +691,7 @@ export const LYRIC_LINES: LyricLine[] = [
   },
   {
     id: 'l-02',
-    startTime: 3.25,
+    startTime: 5.75,
     endTime: 9.6,
     text: '♪ 木吉他切分击弦 · 旅途启幕 ♪',
     echoText: 'ACOUSTIC PERCUSSIVE INTRO',

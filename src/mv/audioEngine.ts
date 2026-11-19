@@ -8,14 +8,12 @@ export class MVAudioAnalyzer {
   private freqBuffer: Uint8Array<ArrayBuffer> | null = null;
   private connectedElement: HTMLAudioElement | null = null;
 
-  public attach(audioEl: HTMLAudioElement): void {
-    if (this.connectedElement === audioEl && this.analyser) {
-      if (this.audioContext && this.audioContext.state === 'suspended') {
-        void this.audioContext.resume().catch(() => {});
-      }
-      return;
-    }
-
+  /**
+   * Attaches Web Audio FFT analysis to `audioEl` ONLY after confirming `AudioContext`
+   * is actively `'running'`, and routes `source -> analyser -> destination` so speaker
+   * audio plays at full volume and the media clock never stalls or mutes.
+   */
+  public async attach(audioEl: HTMLAudioElement): Promise<void> {
     try {
       const Ctx =
         window.AudioContext ||
@@ -24,9 +22,29 @@ export class MVAudioAnalyzer {
 
       if (!this.audioContext) {
         this.audioContext = new Ctx();
+        this.audioContext.onstatechange = () => {
+          if (
+            this.audioContext &&
+            this.audioContext.state === 'suspended' &&
+            this.connectedElement &&
+            !this.connectedElement.paused
+          ) {
+            void this.audioContext.resume().catch(() => {});
+          }
+        };
       }
+
       if (this.audioContext.state === 'suspended') {
-        void this.audioContext.resume().catch(() => {});
+        await this.audioContext.resume().catch(() => {});
+      }
+
+      // Never reroute `<audio>` into a non-running AudioContext; wait for a live user gesture
+      if (this.audioContext.state !== 'running') {
+        return;
+      }
+
+      if (this.connectedElement === audioEl && this.analyser) {
+        return;
       }
 
       if (!this.sourceNode) {
@@ -40,7 +58,7 @@ export class MVAudioAnalyzer {
         this.connectedElement = audioEl;
       }
     } catch {
-      // Fallback gracefully to deterministic 96 BPM beat physics if Web Audio is unavailable
+      // Native `<audio>` continues playing with deterministic 96 BPM beat physics
     }
   }
 
@@ -51,10 +69,6 @@ export class MVAudioAnalyzer {
 
     this.analyser.getByteFrequencyData(this.freqBuffer);
 
-    // 512 FFT @ ~44.1kHz -> ~86Hz per bin (256 bins)
-    // Bass: bins 1..3 (~43Hz - 260Hz)
-    // Mid: bins 4..24 (~340Hz - 2100Hz)
-    // High/Whistle: bins 25..80 (~2150Hz - 6900Hz)
     let bassSum = 0;
     for (let i = 1; i <= 3; i++) bassSum += this.freqBuffer[i];
     const bass = clamp01(bassSum / (3 * 255));
@@ -88,7 +102,6 @@ export class MVAudioAnalyzer {
 
 export async function loadEmbeddedCoverUrl(signal?: AbortSignal): Promise<string | null> {
   try {
-    // Only fetch the first 320KB where the ID3v2 header + APIC cover reside
     const res = await fetch(AUDIO_SRC, {
       headers: { Range: 'bytes=0-327680' },
       signal,

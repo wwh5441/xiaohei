@@ -2571,324 +2571,13 @@ export function drawLowTrackingBootsAndRimowa(
 }
 
 /**
- * True Ground-Level Macro of RIMOWA Dual-Spoke Multiwheel & Striding Leather Chelsea Boot
- * Used in S03 (hallway wakeup), S05 (odometer macro), S15 (silent cobblestone cushion),
- * S39 (hydroplane rooster-tail spray), S47 (completely halted wheel + fallen ginkgo leaf),
- * and S58 (golden runway light trails).
- */
-export function drawTrueMacroWheelAndBoot(
-  sc: ShotContext,
-  groundY: number,
-  opts: {
-    wheelRadiusPx?: number;
-    haltedLeaf?: boolean;
-    cobblestoneCushion?: boolean;
-    roosterSpray?: boolean;
-    goldenTrails?: boolean;
-    showBoot?: boolean;
-  }
-): void {
-  const { ctx, w, timeSec, wheelAngle, beat, chapter } = sc;
-  const u = Math.max(0.72, Math.min(1.25, w / 1440));
-  const wr = (opts.wheelRadiusPx ?? 52) * u;
-  const wheelCx = opts.showBoot === false ? w * 0.48 : w * 0.39;
-  const cushionY = opts.cobblestoneCushion
-    ? Math.abs(Math.sin(timeSec * 9.5)) * 6.5 * u
-    : opts.haltedLeaf
-    ? 0
-    : beat.kickPulse * 2.2 * u;
-  const wheelCy = groundY - wr - 2 * u + cushionY * 0.35;
-  const shellBottomY = wheelCy - wr * 0.78 - cushionY * 0.65;
-
-  ctx.save();
-
-  // 1. Optional golden runway four-wheel light trails (S58)
-  if (opts.goldenTrails) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let tr = 0; tr < 3; tr++) {
-      const ty = groundY - 4 * u - tr * 10 * u;
-      const tGrad = ctx.createLinearGradient(wheelCx - 420 * u, ty, wheelCx, ty);
-      tGrad.addColorStop(0, 'rgba(250, 204, 21, 0)');
-      tGrad.addColorStop(0.6, 'rgba(251, 191, 36, 0.36)');
-      tGrad.addColorStop(1, 'rgba(254, 240, 138, 0.88)');
-      ctx.strokeStyle = tGrad;
-      ctx.lineWidth = (5.5 - tr * 1.2) * u;
-      ctx.beginPath();
-      ctx.moveTo(wheelCx - 420 * u, ty);
-      ctx.lineTo(wheelCx + 10 * u, ty);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 2. Ground contact shadow under macro wheel & boot
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
-  ctx.beginPath();
-  ctx.ellipse(wheelCx, groundY + 2 * u, wr * 1.45, 9 * u, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 3. Lower Corner of Matte-Black Grooved RIMOWA Shell + Riveted Brushed-Aluminum Corner Cap
-  const caseW = 310 * u;
-  const caseH = 220 * u;
-  const caseLeft = wheelCx - caseW * 0.34;
-  const caseTop = shellBottomY - caseH;
-
-  const bodyGrad = ctx.createLinearGradient(caseLeft, caseTop, caseLeft + caseW, shellBottomY);
-  bodyGrad.addColorStop(0, '#2d2d38');
-  bodyGrad.addColorStop(0.5, '#17171f');
-  bodyGrad.addColorStop(1, '#0b0b10');
-  ctx.fillStyle = bodyGrad;
-  ctx.strokeStyle = 'rgba(212, 212, 216, 0.35)';
-  ctx.lineWidth = 1.8 * u;
-  roundRectPath(ctx, caseLeft, caseTop, caseW, caseH, 20 * u);
-  ctx.fill();
-  ctx.stroke();
-
-  // Signature vertical grooves on lower shell
-  for (let g = 1; g <= 5; g++) {
-    const gx = caseLeft + (caseW * g) / 6;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.68)';
-    ctx.lineWidth = 3 * u;
-    ctx.beginPath();
-    ctx.moveTo(gx - 1.5 * u, caseTop + 14 * u);
-    ctx.lineTo(gx - 1.5 * u, shellBottomY - 14 * u);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(244, 244, 245, 0.14)';
-    ctx.lineWidth = 1.3 * u;
-    ctx.beginPath();
-    ctx.moveTo(gx + 1.5 * u, caseTop + 14 * u);
-    ctx.lineTo(gx + 1.5 * u, shellBottomY - 14 * u);
-    ctx.stroke();
-  }
-
-  // Riveted aluminum bottom-left & bottom-right corner bumpers
-  for (const cxCap of [caseLeft, caseLeft + caseW - 58 * u]) {
-    ctx.fillStyle = '#3f3f48';
-    ctx.strokeStyle = '#a1a1aa';
-    ctx.lineWidth = 1.3 * u;
-    roundRectPath(ctx, cxCap, shellBottomY - 52 * u, 58 * u, 52 * u, 16 * u);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#e4e4e7';
-    for (const [rx, ry] of [
-      [16, 16],
-      [40, 16],
-      [16, 36],
-    ]) {
-      ctx.beginPath();
-      ctx.arc(cxCap + rx * u, shellBottomY - 52 * u + ry * u, 2.4 * u, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Rear secondary Multiwheel in soft background depth
-  const rearWx = caseLeft + caseW * 0.78;
-  const rearWr = wr * 0.84;
-  const effAng = opts.haltedLeaf ? 0.42 : wheelAngle;
-  ctx.save();
-  ctx.globalAlpha = 0.78;
-  ctx.translate(rearWx, groundY - rearWr - 2 * u);
-  ctx.rotate(effAng);
-  ctx.fillStyle = '#0c0c10';
-  ctx.strokeStyle = '#52525b';
-  ctx.lineWidth = 5 * u;
-  ctx.beginPath();
-  ctx.arc(0, 0, rearWr, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-
-  // 4. Hero Foreground RIMOWA Multiwheel Housing, Suspension Fork & Precision Dual-Spoke Wheel
-  ctx.fillStyle = '#24242c';
-  ctx.strokeStyle = '#71717a';
-  ctx.lineWidth = 1.5 * u;
-  roundRectPath(ctx, wheelCx - wr * 0.72, shellBottomY - 8 * u, wr * 1.44, wr * 0.62, 10 * u);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.save();
-  ctx.translate(wheelCx, wheelCy);
-  ctx.rotate(effAng);
-
-  // High-elasticity matte rubber tire tread
-  ctx.fillStyle = '#0b0b0f';
-  ctx.strokeStyle = opts.haltedLeaf ? '#78716c' : '#52525b';
-  ctx.lineWidth = 8.5 * u;
-  ctx.beginPath();
-  ctx.arc(0, 0, wr - 4 * u, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Machined inner rim & 5 twin-beam spokes
-  ctx.strokeStyle = '#a1a1aa';
-  ctx.lineWidth = 2.2 * u;
-  ctx.beginPath();
-  ctx.arc(0, 0, wr * 0.72, 0, Math.PI * 2);
-  ctx.stroke();
-
-  for (let k = 0; k < 5; k++) {
-    const a = (k / 5) * Math.PI * 2;
-    ctx.strokeStyle = '#d4d4d8';
-    ctx.lineWidth = 3.4 * u;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a - 0.1) * wr * 0.2, Math.sin(a - 0.1) * wr * 0.2);
-    ctx.lineTo(Math.cos(a - 0.05) * wr * 0.7, Math.sin(a - 0.05) * wr * 0.7);
-    ctx.stroke();
-  }
-
-  // Subtle patina scuffs on halted aged wheel (S47)
-  if (opts.haltedLeaf) {
-    ctx.strokeStyle = 'rgba(214, 211, 209, 0.35)';
-    ctx.lineWidth = 1.4 * u;
-    ctx.beginPath();
-    ctx.arc(0, 0, wr * 0.86, 0.3, 1.15);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(0, 0, wr * 0.83, 2.4, 3.2);
-    ctx.stroke();
-  }
-
-  // Center precision ball-bearing hub cap
-  ctx.fillStyle = '#18181b';
-  ctx.strokeStyle = chapter.accentHex;
-  ctx.lineWidth = 2.2 * u;
-  ctx.beginPath();
-  ctx.arc(0, 0, wr * 0.24, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-
-  // Swan-neck suspension fork arm linking housing down to center axle
-  ctx.fillStyle = '#2e2e38';
-  ctx.strokeStyle = '#a1a1aa';
-  ctx.lineWidth = 1.4 * u;
-  roundRectPath(
-    ctx,
-    wheelCx - 9 * u,
-    shellBottomY + 8 * u,
-    18 * u,
-    wheelCy - shellBottomY - 2 * u,
-    8 * u
-  );
-  ctx.fill();
-  ctx.stroke();
-
-  // 5. Rooster-tail hydroplane water spray fan (S39)
-  if (opts.roosterSpray) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    for (let d = 0; d < 22; d++) {
-      const f = d / 21;
-      const ang = Math.PI + 0.18 + f * 0.78;
-      const dist = (wr * 1.05 + ((timeSec * 290 + d * 29) % (170 * u)));
-      const sx = wheelCx + Math.cos(ang) * dist;
-      const sy = groundY - 6 * u + Math.sin(ang) * dist * 0.62;
-      ctx.strokeStyle = d % 2 === 0 ? 'rgba(56, 189, 248, 0.72)' : 'rgba(253, 224, 71, 0.75)';
-      ctx.lineWidth = (2.6 - f * 1.4) * u;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx - Math.cos(ang) * 22 * u, sy - Math.sin(ang) * 14 * u);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 6. Fallen golden ginkgo leaf gently coming to rest against the stationary wheel (S47)
-  if (opts.haltedLeaf) {
-    const settle = Math.min(1, sc.lineProgress * 1.45);
-    const leafX = wheelCx + wr * 1.08 + (1 - settle) * 55 * u + Math.sin(settle * Math.PI * 2) * (1 - settle) * 16 * u;
-    const leafY = groundY - 8 * u - (1 - settle) * 95 * u;
-    const leafRot = -0.35 + (1 - settle) * 0.85;
-
-    ctx.save();
-    ctx.translate(leafX, leafY);
-    ctx.rotate(leafRot);
-    const leafGrad = ctx.createLinearGradient(-18 * u, -20 * u, 22 * u, 14 * u);
-    leafGrad.addColorStop(0, '#fef08a');
-    leafGrad.addColorStop(0.6, '#f59e0b');
-    leafGrad.addColorStop(1, '#b45309');
-    ctx.fillStyle = leafGrad;
-    ctx.beginPath();
-    ctx.moveTo(-18 * u, 8 * u);
-    ctx.quadraticCurveTo(-4 * u, -24 * u, 22 * u, -14 * u);
-    ctx.quadraticCurveTo(14 * u, -2 * u, 24 * u, 8 * u);
-    ctx.quadraticCurveTo(2 * u, 16 * u, -18 * u, 8 * u);
-    ctx.closePath();
-    ctx.fill();
-    // Stem
-    ctx.strokeStyle = '#92400e';
-    ctx.lineWidth = 1.8 * u;
-    ctx.beginPath();
-    ctx.moveTo(-18 * u, 8 * u);
-    ctx.lineTo(-30 * u, 14 * u);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // 7. Foreground Stepping Leather Chelsea Boot & Wool Trouser Cuff on Right
-  if (opts.showBoot !== false && !opts.haltedLeaf) {
-    const stride = computeHumanStridePose(timeSec * 5.2, 22);
-    const bootX = w * 0.68 + stride.nearLeg.ankleOffsetX * 2.2 * u;
-    const bootY = groundY - stride.nearLeg.ankleLiftY * 1.9 * u;
-    const pitch = stride.nearLeg.footPitch * 0.65;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.52)';
-    ctx.beginPath();
-    ctx.ellipse(bootX + 24 * u, groundY + 3 * u, 76 * u, 8 * u, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.save();
-    ctx.translate(bootX, bootY - 38 * u);
-    ctx.rotate(pitch);
-
-    // Lower wool trouser cuff
-    const trouserGrad = ctx.createLinearGradient(-36 * u, -160 * u, 36 * u, -10 * u);
-    trouserGrad.addColorStop(0, '#0f111a');
-    trouserGrad.addColorStop(1, '#1e2233');
-    ctx.fillStyle = trouserGrad;
-    ctx.beginPath();
-    ctx.moveTo(-38 * u, -190 * u);
-    ctx.lineTo(28 * u, -190 * u);
-    ctx.lineTo(24 * u, -12 * u);
-    ctx.lineTo(-30 * u, -10 * u);
-    ctx.closePath();
-    ctx.fill();
-
-    // Sculpted full-grain dark leather Chelsea boot
-    const bGrad = ctx.createLinearGradient(-32 * u, -12 * u, 88 * u, 36 * u);
-    bGrad.addColorStop(0, '#272024');
-    bGrad.addColorStop(0.5, '#131015');
-    bGrad.addColorStop(1, '#070609');
-    ctx.fillStyle = bGrad;
-    ctx.beginPath();
-    ctx.moveTo(-26 * u, -16 * u);
-    ctx.lineTo(22 * u, -16 * u);
-    ctx.bezierCurveTo(38 * u, 6 * u, 64 * u, 16 * u, 84 * u, 24 * u);
-    ctx.quadraticCurveTo(92 * u, 30 * u, 85 * u, 36 * u);
-    ctx.lineTo(-34 * u, 36 * u);
-    ctx.quadraticCurveTo(-38 * u, 10 * u, -26 * u, -16 * u);
-    ctx.closePath();
-    ctx.fill();
-
-    // Goodyear welt & stacked heel
-    ctx.fillStyle = '#3b281e';
-    ctx.fillRect(-35 * u, 33 * u, 121 * u, 5 * u);
-    ctx.fillRect(-35 * u, 37 * u, 36 * u, 5 * u);
-    ctx.restore();
-  }
-
-  ctx.restore();
-}
-
-/**
  * True 85mm Over-The-Shoulder (OTS) Medium Close-Up (`S19`, `S57` — "尔似 在我肩"):
  * Frames the Traveler's back/shoulder & wind-swept cashmere scarf in foreground left-center,
  * with Xiaohei's extended brushed-titanium telescopic handle & top corner right at shoulder level!
  */
 export function drawOverTheShoulderCompanion(
   sc: ShotContext,
-  opts: { goldenPromenade?: boolean }
+  opts: { goldenPromenade?: boolean; mirrorHorizontal?: boolean }
 ): void {
   const { ctx, w, h, timeSec, beat } = sc;
   const u = Math.max(0.72, Math.min(1.25, w / 1440));
@@ -2904,6 +2593,10 @@ export function drawOverTheShoulderCompanion(
   const rodSpan = 74 * u;
 
   ctx.save();
+  if (opts.mirrorHorizontal) {
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+  }
   // Brushed titanium twin rods
   for (const sign of [-1, 1]) {
     const rx = caseCx + sign * rodSpan;
@@ -2938,10 +2631,14 @@ export function drawOverTheShoulderCompanion(
   ctx.fillStyle = '#f59e0b';
   roundRectPath(ctx, 0, -10 * u, 74 * u, 24 * u, 4 * u);
   ctx.fill();
+  ctx.save();
+  ctx.translate(37 * u, 0);
+  if (opts.mirrorHorizontal) ctx.scale(-1, 1);
   ctx.fillStyle = '#09090b';
   ctx.font = `900 ${Math.round(11 * u)}px "Outfit", sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('PRIORITY', 37 * u, 5 * u);
+  ctx.fillText('PRIORITY', 0, 5 * u);
+  ctx.restore();
   ctx.restore();
 
   // Upper matte-black grooved RIMOWA shell & riveted corner bumper

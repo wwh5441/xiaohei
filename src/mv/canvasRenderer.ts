@@ -185,7 +185,11 @@ export class MVCanvasRenderer {
     }
   }
 
-  public render(
+  public  hasActiveBursts(): boolean {
+    return this.sparks.some((p) => p.active) || this.flyingStickers.some((s) => s.active);
+  }
+
+  render(
     ctx: CanvasRenderingContext2D,
     width: number,
     height: number,
@@ -208,24 +212,29 @@ export class MVCanvasRenderer {
     const spec = shotInfo.spec;
     const prog = shotInfo.lineProgress;
 
-    const baseSpeed = (isPlaying ? 1 : 0.14) * (0.42 + chapter.energyBase * 1.35 + beat.kickPulse * 0.45);
+    const baseSpeed = (isPlaying ? 1 : 0) * (0.42 + chapter.energyBase * 1.35 + beat.kickPulse * 0.45);
     this.scrollDist += safeDt * 380 * (spec.freezeWheel ? 0.04 : baseSpeed);
-    if (!spec.freezeWheel) {
+    if (!spec.freezeWheel && isPlaying) {
       this.wheelAngle += safeDt * 12.2 * baseSpeed;
     }
 
     // Per-shot lens kinematics interpolated across `lineProgress` (`zoomStart -> zoomEnd`, `panStart -> panEnd`, `dutchDeg`)
     const specZoom = spec.zoomStart + (spec.zoomEnd - spec.zoomStart) * prog;
-    const cutZoomBoost = reducedMotion ? 0 : shotInfo.cutTransition * 0.055;
-    const punchZoom = reducedMotion ? 0 : beat.kickPulse * 0.036 + beat.sectionFlash * 0.06 + cutZoomBoost;
+    const cutZoomBoost = reducedMotion || !isPlaying ? 0 : shotInfo.cutTransition * 0.055;
+    const punchZoom = reducedMotion || !isPlaying ? 0 : beat.kickPulse * 0.036 + beat.sectionFlash * 0.06 + cutZoomBoost;
     const targetZoom = Math.max(0.96, specZoom + punchZoom);
 
     const dutchRad = (spec.dutchDeg * Math.PI) / 180;
     const targetTilt = reducedMotion || cameraMode === 'cinema_wide' ? 0 : dutchRad;
 
-    const damp = 1 - Math.exp(-14 * safeDt);
-    this.camZoom += (targetZoom - this.camZoom) * damp;
-    this.camTilt += (targetTilt - this.camTilt) * damp;
+    if (!isPlaying) {
+      this.camZoom = targetZoom;
+      this.camTilt = targetTilt;
+    } else {
+      const damp = 1 - Math.exp(-14 * safeDt);
+      this.camZoom += (targetZoom - this.camZoom) * damp;
+      this.camTilt += (targetTilt - this.camTilt) * damp;
+    }
 
     const panX = reducedMotion
       ? 0
@@ -266,6 +275,7 @@ export class MVCanvasRenderer {
       beat,
       bands,
       bonusStickers: this.bonusStickerCount,
+      isPlaying,
       reducedMotion,
     };
 

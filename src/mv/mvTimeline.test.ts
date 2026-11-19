@@ -1,17 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { LYRIC_LINES, MV_CHAPTERS, SHOT_SPECS, SONG_META } from './mvData';
+import { AUDIO_INTRO_SOUND_START_SEC, LYRIC_LINES, MV_CHAPTERS, SHOT_SPECS, SONG_META } from './mvData';
+import { sampleS03ContactLockedFoot } from './shotComposersA';
 import {
   computeBeatState,
   computeHumanStridePose,
   formatTimecode,
   getActiveChapter,
   getActiveLyricIndex,
+  getAdjacentShotSeekTime,
   getLyricProgress,
+  getShotSeekTimeByIndex,
   parseId3CoverArt,
   resolveActiveShot,
   resolveLyricStagePlacement,
+  resolveShotSeekTimeByParam,
   solveGravityArmIK,
   solveTwoBoneIK,
 } from './mvTimeline';
@@ -234,3 +238,88 @@ test('1:7.5 human stride pose and gravity arm IK maintain upright stance and nat
   const armRight = solveGravityArmIK(320, 140, 382, 175, 38, 37, 1);
   assert.ok(armRight.elbowY > 140);
 });
+
+test('Left/Right shot stepping traverses S01..S66 cleanly without boundary drift', () => {
+  // Stepping left at S01 clamps cleanly to S01
+  assert.equal(getAdjacentShotSeekTime(0, -1), 0);
+  assert.equal(getActiveLyricIndex(getAdjacentShotSeekTime(0, -1)), 0);
+
+  // Stepping right 65 times visits every single shot S01 -> S66 in exact order
+  let t = 0;
+  for (let expectedIdx = 1; expectedIdx < LYRIC_LINES.length; expectedIdx++) {
+    t = getAdjacentShotSeekTime(t, 1);
+    const landedIdx = getActiveLyricIndex(t);
+    assert.equal(
+      landedIdx,
+      expectedIdx,
+      `Step right to index ${expectedIdx} landed on ${landedIdx} at t=${t}`
+    );
+    assert.equal(
+      resolveActiveShot(t, 'auto', computeBeatState(t)).shotCode,
+      LYRIC_LINES[expectedIdx].shotCode
+    );
+  }
+
+  // Stepping right at S66 stays clamped on S66
+  t = getAdjacentShotSeekTime(t, 1);
+  assert.equal(getActiveLyricIndex(t), 65);
+  assert.equal(resolveActiveShot(t, 'auto', computeBeatState(t)).shotCode, 'S66');
+
+  // Stepping left back down to S01 visits every shot in reverse without skipping
+  for (let expectedIdx = LYRIC_LINES.length - 2; expectedIdx >= 0; expectedIdx--) {
+    t = getAdjacentShotSeekTime(t, -1);
+    assert.equal(getActiveLyricIndex(t), expectedIdx);
+  }
+
+  // URL ?s= / ?shot= param resolver
+  assert.equal(resolveShotSeekTimeByParam('S01'), 0);
+  assert.equal(resolveShotSeekTimeByParam('s03'), getShotSeekTimeByIndex(2));
+  assert.equal(resolveShotSeekTimeByParam('66'), getShotSeekTimeByIndex(65));
+  assert.equal(resolveShotSeekTimeByParam('S99'), null);
+  assert.equal(resolveShotSeekTimeByParam('invalid'), null);
+});
+
+test('S01 audio start skips MP3 dead silence and S03 gait has zero floor slip or IK knee snap', () => {
+  // Starting playback skips the 2.92s digital-zero MP3 header while remaining inside S01 for >2.8s
+  assert.ok(AUDIO_INTRO_SOUND_START_SEC >= 2.9 && AUDIO_INTRO_SOUND_START_SEC < 3.05);
+  assert.equal(
+    resolveActiveShot(AUDIO_INTRO_SOUND_START_SEC, 'auto', computeBeatState(AUDIO_INTRO_SOUND_START_SEC)).shotCode,
+    'S01'
+  );
+  assert.ok(LYRIC_LINES[0].endTime - AUDIO_INTRO_SOUND_START_SEC > 2.5);
+
+  // S03 contact-locked foot: zero flat-foot slip, continuous transitions, and supple knee ratio
+  const u = 1.8;
+  const groundY = 724;
+  const stepLen = 58 * u;
+  const x0 = 360;
+  const x1 = x0 + stepLen;
+  const x2 = x0 + 2 * stepLen;
+
+  const flatA = sampleS03ContactLockedFoot(true, 0.2, x0, x0 - stepLen, x1, groundY, u);
+  const flatB = sampleS03ContactLockedFoot(true, 0.65, x0, x0 - stepLen, x1, groundY, u);
+  assert.equal(flatA.ankleX, flatB.ankleX, 'Planted stance foot must have zero horizontal slip');
+  assert.equal(flatA.ankleY, flatB.ankleY, 'Planted stance foot must have zero vertical drift');
+
+  const stanceEnd = sampleS03ContactLockedFoot(true, 1.0, x0, x0 - stepLen, x1, groundY, u);
+  const swingStart = sampleS03ContactLockedFoot(false, 0.0, x1, x0, x2, groundY, u);
+  assert.ok(Math.abs(stanceEnd.ankleX - swingStart.ankleX) < 1e-6);
+  assert.ok(Math.abs(stanceEnd.ankleY - swingStart.ankleY) < 1e-6);
+
+  const swingEnd = sampleS03ContactLockedFoot(false, 1.0, x1, x0, x2, groundY, u);
+  const nextStanceStart = sampleS03ContactLockedFoot(true, 0.0, x2, x1, x2 + stepLen, groundY, u);
+  assert.ok(Math.abs(swingEnd.ankleX - nextStanceStart.ankleX) < 1e-6);
+  assert.ok(Math.abs(swingEnd.ankleY - nextStanceStart.ankleY) < 1e-6);
+
+  const legSum = (55 + 53) * u;
+  for (let i = 0; i <= 40; i++) {
+    const p = i / 40;
+    const stance = sampleS03ContactLockedFoot(true, p, x1, x0, x2, groundY, u);
+    const hipX = x0 + (1 + p - 0.47) * stepLen + Math.sin(p * Math.PI * 2) * 0.7 * u;
+    const hipY = groundY - 7.5 * u - 101.6 * u - Math.sin((p - 0.12) * Math.PI * 2) * 2.1 * u;
+    const ratio = Math.hypot(stance.ankleX - hipX, stance.ankleY - hipY) / legSum;
+    assert.ok(ratio > 0.91 && ratio < 0.985, `Upright knee ratio ${ratio.toFixed(3)} must be tall yet snap-free`);
+  }
+});
+
+

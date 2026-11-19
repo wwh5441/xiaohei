@@ -6,11 +6,11 @@ import {
   drawOverTheShoulderCompanion,
   drawRearWalkingHorizonDuo,
   drawRimowaCabin,
-  drawTrueMacroWheelAndBoot,
 } from './humanRimowaRig';
 import {
   drawAnamorphicFlare,
   drawCinemaBokeh,
+  drawPrecisionRimowaWheel,
   drawPriorityCard,
   drawTyndallGodRays,
   hash01,
@@ -175,31 +175,179 @@ function renderS46StreetTimelapseSanctuary(sc: ShotContext): void {
 }
 
 function renderS47HaltedWheelAutumnLeaf(sc: ShotContext): void {
-  const { ctx, w, h } = sc;
-  const floorY = h * 0.78;
+  const { ctx, w, h, lineProgress } = sc;
+  const u = Math.max(0.72, Math.min(1.25, w / 1440));
+  const floorY = h * 0.77;
 
-  // Warm Afternoon Oak Floorboards Macro + Completely Stationary Aged Wheel + Falling Ginkgo Leaf ("如果 转轮 不再自由")
+  // Sunlit Parquet Corner Still-Life Macro ("如果 转轮 不再自由" — Stationary Patina Wheel + Settling Golden Ginkgo Leaves)
   const wall = ctx.createLinearGradient(0, 0, w, floorY);
-  wall.addColorStop(0, '#1a120c');
-  wall.addColorStop(0.6, '#332215');
-  wall.addColorStop(1, '#4d321c');
+  wall.addColorStop(0, '#21160f');
+  wall.addColorStop(0.58, '#3b281a');
+  wall.addColorStop(1, '#543822');
   ctx.fillStyle = wall;
   ctx.fillRect(0, 0, w, floorY);
 
-  drawTyndallGodRays(ctx, w * 0.82, 0, 4, 2.2, 0.35, h, '253, 224, 71', 0.14);
+  // Cream architectural baseboard molding along home wall
+  const baseH = 44 * u;
+  const baseGrad = ctx.createLinearGradient(0, floorY - baseH, 0, floorY);
+  baseGrad.addColorStop(0, '#e7dcc8');
+  baseGrad.addColorStop(0.25, '#d6c5a9');
+  baseGrad.addColorStop(1, '#9c8669');
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, floorY - baseH, w, baseH);
+  ctx.strokeStyle = 'rgba(255, 251, 235, 0.45)';
+  ctx.lineWidth = 1.5 * u;
+  ctx.beginPath();
+  ctx.moveTo(0, floorY - baseH + 8 * u);
+  ctx.lineTo(w, floorY - baseH + 8 * u);
+  ctx.stroke();
 
+  // Warm oak floorboards with subtle grain & plank seams
   const floor = ctx.createLinearGradient(0, floorY, 0, h);
-  floor.addColorStop(0, '#3d2514');
-  floor.addColorStop(1, '#170d07');
+  floor.addColorStop(0, '#4a2e19');
+  floor.addColorStop(0.55, '#331e0f');
+  floor.addColorStop(1, '#180d06');
   ctx.fillStyle = floor;
   ctx.fillRect(0, floorY, w, h - floorY);
 
-  // `haltedLeaf: true` locks wheel rotation to a fixed angle with patina scuffs and a settling golden ginkgo leaf!
-  drawTrueMacroWheelAndBoot(sc, floorY + 6, {
-    wheelRadiusPx: 58,
-    haltedLeaf: true,
-    showBoot: false,
+  ctx.strokeStyle = 'rgba(20, 10, 4, 0.45)';
+  ctx.lineWidth = 1.6 * u;
+  for (let p = 1; p <= 4; p++) {
+    const py = floorY + ((h - floorY) * p) / 4.5;
+    ctx.beginPath();
+    ctx.moveTo(0, py);
+    ctx.lineTo(w, py);
+    ctx.stroke();
+  }
+
+  // Soft afternoon window sunbeam diagonal from upper-right
+  drawTyndallGodRays(ctx, w * 0.88, -20, 5, 2.32, 0.38, h * 1.15, '254, 240, 138', 0.17);
+
+  // Full-bleed lower-right corner of Xiaohei extending naturally off top-left viewport edge (never a chopped squat box!)
+  const wheelCx = w * 0.38;
+  const wheelR = 98 * u;
+  const wheelCy = floorY + 12 * u - wheelR;
+  const shellRightX = wheelCx + 155 * u;
+  const shellBotY = wheelCy - wheelR * 0.72;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+  ctx.beginPath();
+  ctx.ellipse(wheelCx - 40 * u, floorY + 16 * u, 210 * u, 16 * u, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const shellGrad = ctx.createLinearGradient(0, 0, shellRightX, shellBotY);
+  shellGrad.addColorStop(0, '#2c2930');
+  shellGrad.addColorStop(0.6, '#18161c');
+  shellGrad.addColorStop(1, '#0d0c10');
+  ctx.fillStyle = shellGrad;
+  ctx.strokeStyle = 'rgba(253, 224, 71, 0.32)';
+  ctx.lineWidth = 2.2 * u;
+  roundRectPath(ctx, -120, -120, shellRightX + 120, shellBotY + 120, 34 * u);
+  ctx.fill();
+  ctx.stroke();
+
+  // Vertical RIMOWA ribs & riveted brushed-aluminum corner cap
+  for (let gx = 48 * u; gx < shellRightX - 68 * u; gx += 62 * u) {
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.lineWidth = 4 * u;
+    ctx.beginPath();
+    ctx.moveTo(gx, 0);
+    ctx.lineTo(gx, shellBotY - 18 * u);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(254, 243, 199, 0.14)';
+    ctx.lineWidth = 1.5 * u;
+    ctx.beginPath();
+    ctx.moveTo(gx + 3 * u, 0);
+    ctx.lineTo(gx + 3 * u, shellBotY - 18 * u);
+    ctx.stroke();
+  }
+
+  const capW = 92 * u;
+  const capH = 82 * u;
+  const capX = shellRightX - capW;
+  const capY = shellBotY - capH;
+  ctx.fillStyle = '#44403c';
+  ctx.strokeStyle = '#d6d3d1';
+  ctx.lineWidth = 1.8 * u;
+  roundRectPath(ctx, capX, capY, capW, capH, 24 * u);
+  ctx.fill();
+  ctx.stroke();
+
+  for (const [rx, ry] of [
+    [22, 22],
+    [54, 20],
+    [72, 40],
+    [22, 58],
+    [58, 60],
+  ]) {
+    ctx.fillStyle = '#e7e5e4';
+    ctx.beginPath();
+    ctx.arc(capX + rx * u, capY + ry * u, 3.2 * u, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Completely motionless weathered wheel locked at fixed angle `0.42`
+  drawPrecisionRimowaWheel(ctx, {
+    cx: wheelCx,
+    cy: wheelCy,
+    radius: wheelR,
+    angleRad: 0.42,
+    accentHex: '#f59e0b',
+    weathered: true,
   });
+
+  // Helper to paint a botanical fan-shaped golden ginkgo leaf with stem & veins
+  const drawGinkgoLeaf = (lx: number, ly: number, rot: number, scLeaf: number) => {
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(rot);
+    ctx.scale(scLeaf, scLeaf);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(4 * u, 10 * u, 32 * u, 10 * u, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const lg = ctx.createLinearGradient(-28 * u, -26 * u, 34 * u, 18 * u);
+    lg.addColorStop(0, '#fef08a');
+    lg.addColorStop(0.58, '#f59e0b');
+    lg.addColorStop(1, '#b45309');
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.moveTo(-26 * u, 10 * u);
+    ctx.quadraticCurveTo(-8 * u, -30 * u, 28 * u, -20 * u);
+    ctx.quadraticCurveTo(18 * u, -3 * u, 32 * u, 10 * u);
+    ctx.quadraticCurveTo(4 * u, 22 * u, -26 * u, 10 * u);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(146, 64, 14, 0.45)';
+    ctx.lineWidth = 1.1 * u;
+    for (const va of [-0.32, -0.1, 0.12]) {
+      ctx.beginPath();
+      ctx.moveTo(-22 * u, 8 * u);
+      ctx.lineTo(Math.cos(va) * 24 * u, Math.sin(va) * 22 * u - 4 * u);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = 2.2 * u;
+    ctx.beginPath();
+    ctx.moveTo(-26 * u, 10 * u);
+    ctx.lineTo(-42 * u, 17 * u);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  // Already-fallen autumn ginkgo leaf resting quietly in sunbeam on right
+  drawGinkgoLeaf(w * 0.72, floorY + 34 * u, 0.24, 0.92);
+
+  // Primary golden ginkgo leaf drifting down and coming to rest against the stationary wheel
+  const settle = Math.min(1, lineProgress * 1.4);
+  const leafX = wheelCx + wheelR * 1.06 + (1 - settle) * 72 * u + Math.sin(settle * Math.PI * 2) * (1 - settle) * 18 * u;
+  const leafY = floorY + 12 * u - (1 - settle) * 125 * u;
+  const leafRot = -0.28 + (1 - settle) * 0.75;
+  drawGinkgoLeaf(leafX, leafY, leafRot, 1.12);
 }
 
 function renderS48EntrywayPlaceByDoor(sc: ShotContext): void {
@@ -745,54 +893,286 @@ function renderS56AirborneStickersCelebration(sc: ShotContext): void {
 }
 
 function renderS57GoldenPromenadeOts(sc: ShotContext): void {
-  const { ctx, w, h } = sc;
-  const horizonY = h * 0.52;
+  const { ctx, w, h, timeSec } = sc;
+  const u = Math.max(0.72, Math.min(1.25, w / 1440));
+  const horizonY = h * 0.5;
+  const deckY = h * 0.79;
 
-  // Molten-Gold Waterfront Promenade OTS ("尔似 在我肩")
+  // Carved Seaside Stone Balustrade Golden Promenade Medium-Wide ("尔似 在我肩" — Distinct Coastal Architecture vs S19!)
   const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
-  sky.addColorStop(0, '#451a03');
-  sky.addColorStop(0.55, '#d97706');
+  sky.addColorStop(0, '#3b1306');
+  sky.addColorStop(0.52, '#d97706');
   sky.addColorStop(1, '#fef08a');
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, horizonY);
 
-  const sea = ctx.createLinearGradient(0, horizonY, 0, h);
-  sea.addColorStop(0, '#f59e0b');
-  sea.addColorStop(0.5, '#78350f');
-  sea.addColorStop(1, '#120a07');
+  // Glittering molten-gold sea & sun-path on the left third
+  const sea = ctx.createLinearGradient(0, horizonY, 0, deckY);
+  sea.addColorStop(0, '#fde047');
+  sea.addColorStop(0.42, '#d97706');
+  sea.addColorStop(1, '#451a03');
   ctx.fillStyle = sea;
-  ctx.fillRect(0, horizonY, w, h - horizonY);
+  ctx.fillRect(0, horizonY, w, deckY - horizonY);
+
+  // Shimmering sun-path ripples across golden ocean
+  const sunX = w * 0.28;
+  ctx.fillStyle = 'rgba(255, 251, 235, 0.65)';
+  for (let r = 0; r < 14; r++) {
+    const ry = horizonY + 8 * u + r * 13 * u;
+    const rw = (28 + r * 14 + Math.sin(timeSec * 3.2 + r) * 10) * u;
+    ctx.fillRect(sunX - rw * 0.5, ry, rw, 3 * u);
+  }
+
+  // Soaring coastal seabirds silhouetted in golden sky
+  ctx.strokeStyle = 'rgba(69, 26, 3, 0.72)';
+  ctx.lineWidth = 2 * u;
+  for (let b = 0; b < 4; b++) {
+    const bx = w * (0.16 + b * 0.09) + Math.sin(timeSec * 1.4 + b) * 14 * u;
+    const by = h * (0.18 + (b % 2) * 0.06) + Math.cos(timeSec * 2.1 + b) * 6 * u;
+    const flap = Math.sin(timeSec * 5.5 + b * 1.3) * 5 * u;
+    ctx.beginPath();
+    ctx.moveTo(bx - 12 * u, by + flap);
+    ctx.quadraticCurveTo(bx - 5 * u, by - 5 * u, bx, by);
+    ctx.quadraticCurveTo(bx + 5 * u, by - 5 * u, bx + 12 * u, by + flap);
+    ctx.stroke();
+  }
 
   renderMidgroundDiegeticLyrics(sc, 's57_golden_promenade_ots');
-  drawOverTheShoulderCompanion(sc, { goldenPromenade: true });
+
+  // Classical carved sandstone seaside balustrade & vintage amber globe promenade lamps
+  const railTopY = deckY - 68 * u;
+  ctx.fillStyle = '#291509';
+  ctx.fillRect(0, deckY, w, h - deckY);
+  ctx.fillStyle = '#43200d';
+  ctx.fillRect(0, railTopY, w, 12 * u);
+  ctx.fillRect(0, deckY - 12 * u, w, 12 * u);
+
+  const postSpacing = 54 * u;
+  for (let px = -((sc.scrollDist * 0.55) % postSpacing); px < w + postSpacing; px += postSpacing) {
+    ctx.fillStyle = '#36190a';
+    roundRectPath(ctx, px - 6 * u, railTopY + 12 * u, 12 * u, 44 * u, 5 * u);
+    ctx.fill();
+  }
+
+  for (const lx of [w * 0.14, w * 0.84]) {
+    ctx.fillStyle = '#1c1008';
+    ctx.fillRect(lx - 4 * u, h * 0.24, 8 * u, railTopY - h * 0.24);
+    const lGlow = ctx.createRadialGradient(lx, h * 0.23, 4 * u, lx, h * 0.23, 52 * u);
+    lGlow.addColorStop(0, '#fffbeb');
+    lGlow.addColorStop(0.35, 'rgba(253, 224, 71, 0.55)');
+    lGlow.addColorStop(1, 'rgba(253, 224, 71, 0)');
+    ctx.fillStyle = lGlow;
+    ctx.beginPath();
+    ctx.arc(lx, h * 0.23, 52 * u, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Mirrored Sculpted 85mm OTS Companion: Xiaohei on LEFT (`0.36w`), Anatomically Sculpted 3/4 Rear Traveler on RIGHT (`0.62w`)!
+  drawOverTheShoulderCompanion(sc, {
+    goldenPromenade: true,
+    mirrorHorizontal: true,
+  });
 }
 
 function renderS58SparklingRunwayWheels(sc: ShotContext): void {
-  const { ctx, w, h, scrollDist } = sc;
-  const roadY = h * 0.75;
+  const { ctx, w, h, timeSec, beat } = sc;
+  const u = Math.max(0.72, Math.min(1.25, w / 1440));
+  const vx = w * 0.5;
+  const horizonY = h * 0.48;
 
-  // Ultra-Low Golden Highway Double-Yellow-Line Light-Trail Macro ("哪怕 生活 添上重量")
-  const sky = ctx.createLinearGradient(0, 0, 0, roadY);
-  sky.addColorStop(0, '#1c0d08');
-  sky.addColorStop(0.65, '#9a3412');
-  sky.addColorStop(1, '#fde047');
+  // 1-Point Perspective Blazing Sunset Highway Centerline Rear Twin-Axle Track ("哪怕 生活 添上重量")
+  const sky = ctx.createRadialGradient(vx, horizonY, 18 * u, vx, horizonY, w * 0.72);
+  sky.addColorStop(0, '#ffffff');
+  sky.addColorStop(0.22, '#fef08a');
+  sky.addColorStop(0.58, '#ea580c');
+  sky.addColorStop(1, '#1c0a06');
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, roadY);
+  ctx.fillRect(0, 0, w, horizonY);
 
-  ctx.fillStyle = '#0f0c0e';
-  ctx.fillRect(0, roadY, w, h - roadY);
+  drawTyndallGodRays(ctx, vx, horizonY, 9, -Math.PI * 0.5, 1.35, h * 0.55, '254, 240, 138', 0.22);
 
-  // Double yellow highway centerline
-  ctx.fillStyle = '#facc15';
-  ctx.fillRect(0, roadY + 20, w, 4);
-  ctx.fillRect(0, roadY + 28, w, 4);
+  // Distant atmospheric sunset mountain ridges flanking the blazing horizon sun
+  ctx.fillStyle = 'rgba(69, 26, 3, 0.52)';
+  ctx.beginPath();
+  ctx.moveTo(0, horizonY);
+  ctx.lineTo(w * 0.14, horizonY - 46 * u);
+  ctx.lineTo(w * 0.28, horizonY - 22 * u);
+  ctx.lineTo(w * 0.41, horizonY - 8 * u);
+  ctx.lineTo(w * 0.59, horizonY - 10 * u);
+  ctx.lineTo(w * 0.74, horizonY - 38 * u);
+  ctx.lineTo(w * 0.88, horizonY - 54 * u);
+  ctx.lineTo(w, horizonY - 24 * u);
+  ctx.lineTo(w, horizonY);
+  ctx.closePath();
+  ctx.fill();
 
-  drawTrueMacroWheelAndBoot(sc, roadY + 8, {
-    wheelRadiusPx: 54,
-    goldenTrails: true,
-    showBoot: true,
-  });
-  void scrollDist;
+  // Receding perspective asphalt highway deck converging to blazing sun at `(vx, horizonY)`
+  const roadGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+  roadGrad.addColorStop(0, '#291811');
+  roadGrad.addColorStop(0.35, '#161113');
+  roadGrad.addColorStop(1, '#09080b');
+  ctx.fillStyle = roadGrad;
+  ctx.fillRect(0, horizonY, w, h - horizonY);
+
+  // Highway shoulder edge lines in perspective
+  ctx.strokeStyle = 'rgba(254, 240, 138, 0.45)';
+  ctx.lineWidth = 2.6 * u;
+  ctx.beginPath();
+  ctx.moveTo(vx - 36 * u, horizonY);
+  ctx.lineTo(w * 0.04, h);
+  ctx.moveTo(vx + 36 * u, horizonY);
+  ctx.lineTo(w * 0.96, h);
+  ctx.stroke();
+
+  // Perspective double-yellow highway centerline straddled symmetrically by Xiaohei!
+  for (const sign of [-1, 1]) {
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.moveTo(vx + sign * 3 * u, horizonY);
+    ctx.lineTo(vx + sign * 6 * u, horizonY);
+    ctx.lineTo(vx + sign * 26 * u, h);
+    ctx.lineTo(vx + sign * 14 * u, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Streaming golden light-trail ribbons rushing past both sides in 1-point perspective
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let tr = 0; tr < 12; tr++) {
+    const side = tr % 2 === 0 ? -1 : 1;
+    const laneSpread = 0.22 + (tr % 6) * 0.12;
+    const prog = ((timeSec * 1.45 + tr * 0.17) % 1);
+    const p0 = prog * prog;
+    const p1 = Math.min(1, (prog + 0.22) * (prog + 0.22));
+    const x0 = vx + side * w * laneSpread * p0;
+    const y0 = horizonY + (h - horizonY) * p0;
+    const x1 = vx + side * w * laneSpread * p1;
+    const y1 = horizonY + (h - horizonY) * p1;
+
+    const lGrad = ctx.createLinearGradient(x0, y0, x1, y1);
+    lGrad.addColorStop(0, 'rgba(250, 204, 21, 0)');
+    lGrad.addColorStop(0.6, 'rgba(251, 191, 36, 0.55)');
+    lGrad.addColorStop(1, 'rgba(255, 251, 235, 0.9)');
+    ctx.strokeStyle = lGrad;
+    ctx.lineWidth = (1.5 + p1 * 4.5) * u;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Symmetrical Low-Angle Rear Hero View of 20" Xiaohei Rolling Straight Toward the Horizon Sun!
+  const groundY = h * 0.86;
+  const caseW = 290 * u;
+  const caseH = 320 * u;
+  const wheelR = 42 * u;
+  const shellBotY = groundY - wheelR * 1.55 + beat.kickPulse * 2.5 * u;
+  const shellTopY = shellBotY - caseH;
+
+  // Long forward sunset shadow cast toward camera
+  const shGrad = ctx.createLinearGradient(vx, groundY - 8 * u, vx, h);
+  shGrad.addColorStop(0, 'rgba(0, 0, 0, 0.72)');
+  shGrad.addColorStop(1, 'rgba(0, 0, 0, 0.18)');
+  ctx.fillStyle = shGrad;
+  ctx.beginPath();
+  ctx.moveTo(vx - caseW * 0.46, groundY - 4 * u);
+  ctx.lineTo(vx + caseW * 0.46, groundY - 4 * u);
+  ctx.lineTo(vx + caseW * 0.78, h);
+  ctx.lineTo(vx - caseW * 0.78, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Left & Right Rear Twin-Caster Assemblies straddling the double-yellow line
+  for (const sign of [-1, 1]) {
+    const wCx = vx + sign * (caseW * 0.36);
+    drawPrecisionRimowaWheel(ctx, {
+      cx: wCx,
+      cy: groundY - wheelR,
+      radius: wheelR,
+      angleRad: sc.wheelAngle,
+      accentHex: '#fde047',
+      twinDepthOffset: { dx: sign * 10 * u, dy: -4 * u },
+    });
+  }
+
+  // Extended brushed-titanium telescopic handle silhouetted against the horizon sun
+  const rodSpan = 64 * u;
+  const gripY = shellTopY - 92 * u;
+  for (const sign of [-1, 1]) {
+    ctx.fillStyle = '#e4e4e7';
+    ctx.fillRect(vx + sign * rodSpan - 5 * u, gripY, 10 * u, shellTopY - gripY + 8 * u);
+  }
+  ctx.fillStyle = '#18181f';
+  ctx.strokeStyle = '#fef08a';
+  ctx.lineWidth = 2.2 * u;
+  roundRectPath(ctx, vx - rodSpan - 16 * u, gripY - 10 * u, rodSpan * 2 + 32 * u, 20 * u, 9 * u);
+  ctx.fill();
+  ctx.stroke();
+
+  // Symmetrical grooved anodized rear shell of Xiaohei rim-lit by blazing gold sunlight
+  const bodyGrad = ctx.createLinearGradient(vx - caseW * 0.5, shellTopY, vx + caseW * 0.5, shellBotY);
+  bodyGrad.addColorStop(0, '#27242d');
+  bodyGrad.addColorStop(0.5, '#14131a');
+  bodyGrad.addColorStop(1, '#27242d');
+  ctx.fillStyle = bodyGrad;
+  ctx.strokeStyle = '#fde047';
+  ctx.lineWidth = 2.6 * u;
+  roundRectPath(ctx, vx - caseW * 0.5, shellTopY, caseW, caseH, 24 * u);
+  ctx.fill();
+  ctx.stroke();
+
+  for (let g = 1; g <= 6; g++) {
+    const gx = vx - caseW * 0.5 + (caseW * g) / 7;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.lineWidth = 3 * u;
+    ctx.beginPath();
+    ctx.moveTo(gx, shellTopY + 18 * u);
+    ctx.lineTo(gx, shellBotY - 18 * u);
+    ctx.stroke();
+  }
+
+  // 4 Riveted corner caps + rear priority sticker badge
+  for (const [cxCap, cyCap] of [
+    [vx - caseW * 0.5, shellTopY],
+    [vx + caseW * 0.5 - 58 * u, shellTopY],
+    [vx - caseW * 0.5, shellBotY - 52 * u],
+    [vx + caseW * 0.5 - 58 * u, shellBotY - 52 * u],
+  ]) {
+    ctx.fillStyle = '#52525b';
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.3 * u;
+    roundRectPath(ctx, cxCap, cyCap, 58 * u, 52 * u, 16 * u);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#e4e4e7';
+    for (const [rx, ry] of [
+      [16, 16],
+      [42, 16],
+      [16, 36],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(cxCap + rx * u, cyCap + ry * u, 2.2 * u, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  drawPriorityCard(
+    ctx,
+    vx + 36 * u,
+    shellTopY + caseH * 0.44,
+    136 * u,
+    46 * u,
+    0.06,
+    TRAVEL_STICKERS[2].code,
+    TRAVEL_STICKERS[2].label,
+    TRAVEL_STICKERS[2].year,
+    TRAVEL_STICKERS[2].bg,
+    TRAVEL_STICKERS[2].fg
+  );
+
+  drawAnamorphicFlare(ctx, vx, horizonY, w * 0.85, 28 * u, '#fde047', 0.55 + beat.kickPulse * 0.25);
 }
 
 function renderS59HorizonLightgateBreakthrough(sc: ShotContext): void {

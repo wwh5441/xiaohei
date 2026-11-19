@@ -316,6 +316,29 @@ export function getLyricProgress(line: LyricLine, timeSec: number): number {
   return clamp01((timeSec - line.startTime) / span);
 }
 
+export function getShotSeekTimeByIndex(index: number): number {
+  const clampedIdx = Math.max(0, Math.min(LYRIC_LINES.length - 1, Math.trunc(index)));
+  if (clampedIdx === 0) return 0;
+  const line = LYRIC_LINES[clampedIdx];
+  return Math.min(line.startTime + 0.06, (line.startTime + line.endTime) * 0.5);
+}
+
+export function getAdjacentShotSeekTime(currentTimeSec: number, step: -1 | 1): number {
+  const currentIdx = getActiveLyricIndex(currentTimeSec);
+  return getShotSeekTimeByIndex(currentIdx + step);
+}
+
+export function resolveShotSeekTimeByParam(rawParam: string | null): number | null {
+  if (!rawParam) return null;
+  const trimmed = rawParam.trim().toUpperCase();
+  if (!trimmed) return null;
+  const match = /^S?(\d{1,2})$/.exec(trimmed);
+  if (!match) return null;
+  const num = Number(match[1]);
+  if (!Number.isInteger(num) || num < 1 || num > LYRIC_LINES.length) return null;
+  return getShotSeekTimeByIndex(num - 1);
+}
+
 const LOW_TRACK_CYCLE: ShotType[] = [
   's05_boulevard_odometer_low',
   's16_overpass_sunburst_low',

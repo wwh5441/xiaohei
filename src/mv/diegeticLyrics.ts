@@ -1,5 +1,5 @@
 import { SHOT_SPECS, type LyricLine, type ShotType } from './mvData';
-import { clamp01 } from './mvTimeline';
+import { clamp01, resolveLyricStagePlacement } from './mvTimeline';
 import { hash01, roundRectPath, type ShotContext } from './shotPrimitives';
 
 /**
@@ -197,6 +197,10 @@ export function drawThermodynamicRun(
   const chars = Array.from(rawText);
   const accent = opts?.accentHex ?? sc.chapter.accentHex;
   const instant = Boolean(sc.shotSpec.instantSlam);
+  const sampleTime =
+    !sc.isPlaying && sc.timeSec - line.startTime < 0.12
+      ? line.startTime + (line.endTime - line.startTime) * 0.68
+      : sc.timeSec;
 
   ctx.save();
   ctx.textBaseline = 'alphabetic';
@@ -242,7 +246,7 @@ export function drawThermodynamicRun(
             chars.length,
             line.startTime,
             line.endTime,
-            sc.timeSec,
+            sampleTime,
             instant
           );
           if (thermo.state !== 'ghost') {
@@ -275,7 +279,7 @@ export function drawThermodynamicRun(
       chars.length,
       line.startTime,
       line.endTime,
-      sc.timeSec,
+      sampleTime,
       instant
     );
     const inEmp = opts?.textOverride ? true : isIndexInEmphasis(line, chars, i);
@@ -301,11 +305,27 @@ export function drawThermodynamicRun(
       ctx.stroke();
     }
 
+    const age = Math.max(0, sampleTime - thermo.onsetSec);
+    const kineticDy =
+      sc.reducedMotion || opts?.splitFlapTiles
+        ? 0
+        : thermo.state === 'ghost'
+        ? effFont * 0.18
+        : -effFont * 0.16 * Math.exp(-age * 8.5) * Math.cos(age * 16);
+    const kineticRot =
+      sc.reducedMotion || opts?.splitFlapTiles
+        ? 0
+        : thermo.state === 'ghost'
+        ? -0.04
+        : 0.045 * Math.exp(-age * 10);
+
     ctx.save();
     const cx = cursorX + (wChar - spacing) * 0.5;
-    const cy = baselineY - effFont * 0.34;
+    const cy = baselineY - effFont * 0.34 + kineticDy;
     ctx.translate(cx, cy);
-    const pop = sc.reducedMotion ? 1 : thermo.scalePop * (inEmp ? 1.04 : 1);
+    if (kineticRot !== 0) ctx.rotate(kineticRot);
+    const beatBoost = inEmp && !sc.reducedMotion ? 1 + sc.beat.kickPulse * 0.045 : 1;
+    const pop = sc.reducedMotion ? 1 : thermo.scalePop * (inEmp ? 1.05 : 1) * beatBoost;
     if (opts?.splitFlapTiles && thermo.heat > 0.25 && !sc.reducedMotion) {
       ctx.scale(1, Math.max(0.35, 1 - thermo.heat * 0.55));
     } else {
@@ -371,7 +391,11 @@ function drawVerticalPoeticColumn(
   fontPx: number,
   accentHex: string
 ): void {
-  const { ctx, timeSec } = sc;
+  const { ctx } = sc;
+  const sampleTime =
+    !sc.isPlaying && sc.timeSec - line.startTime < 0.12
+      ? line.startTime + (line.endTime - line.startTime) * 0.68
+      : sc.timeSec;
   const chars = Array.from(line.text.replace(/\s+/g, ' · '));
   const stepY = fontPx * 1.18;
 
@@ -381,8 +405,8 @@ function drawVerticalPoeticColumn(
   ctx.textBaseline = 'middle';
 
   // Delicate vertical poetic guide rule
-  ctx.strokeStyle = 'rgba(253, 224, 71, 0.24)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(253, 224, 71, 0.28)';
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.moveTo(colX + fontPx * 0.78, topY - 12);
   ctx.lineTo(colX + fontPx * 0.78, topY + chars.length * stepY);
@@ -396,13 +420,19 @@ function drawVerticalPoeticColumn(
       chars.length,
       line.startTime,
       line.endTime,
-      timeSec,
+      sampleTime,
       Boolean(sc.shotSpec.instantSlam)
     );
     const inEmp = isIndexInEmphasis(line, Array.from(line.text), i);
+    const age = Math.max(0, sampleTime - thermo.onsetSec);
+    const slideX = sc.reducedMotion
+      ? 0
+      : thermo.state === 'ghost'
+      ? 6
+      : -5 * Math.exp(-age * 9);
 
     ctx.save();
-    ctx.translate(colX, gy);
+    ctx.translate(colX + slideX, gy);
     ctx.scale(thermo.scalePop, thermo.scalePop);
     if (thermo.state === 'ghost') {
       ctx.fillStyle = 'rgba(244, 239, 230, 0.25)';
@@ -418,6 +448,51 @@ function drawVerticalPoeticColumn(
   ctx.restore();
 }
 
+function drawKineticRuleAndEcho(
+  ctx: CanvasRenderingContext2D,
+  sc: ShotContext,
+  line: LyricLine,
+  anchorX: number,
+  baselineY: number,
+  align: 'left' | 'center' | 'right',
+  runWidth: number,
+  u: number,
+  accentHex: string
+): void {
+  const prog =
+    !sc.isPlaying && sc.timeSec - line.startTime < 0.12
+      ? 0.72
+      : clamp01((sc.timeSec - line.startTime) / Math.max(0.12, line.endTime - line.startTime));
+  const startX =
+    align === 'center' ? anchorX - runWidth * 0.5 : align === 'right' ? anchorX - runWidth : anchorX;
+  const ruleY = baselineY + 11 * u;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(244, 239, 230, 0.2)';
+  ctx.lineWidth = 1.2 * u;
+  ctx.beginPath();
+  ctx.moveTo(startX, ruleY);
+  ctx.lineTo(startX + runWidth, ruleY);
+  ctx.stroke();
+
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 2.2 * u;
+  ctx.beginPath();
+  ctx.moveTo(startX, ruleY);
+  ctx.lineTo(startX + runWidth * clamp01(prog * 1.15), ruleY);
+  ctx.stroke();
+
+  if (line.echoText) {
+    ctx.font = `700 ${Math.round(13 * u)}px "Outfit", "JetBrains Mono", "Noto Sans SC", sans-serif`;
+    ctx.textAlign = align;
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.9)';
+    ctx.shadowColor = 'rgba(6, 6, 10, 0.9)';
+    ctx.shadowBlur = 8;
+    ctx.fillText(line.echoText, anchorX, ruleY + 19 * u);
+  }
+  ctx.restore();
+}
+
 /**
  * LAYER 1: Midground World-Embedded Lyrics (Occluded by Foreground Bridge Cables, silhouettes, or poles)
  */
@@ -427,19 +502,23 @@ export function renderMidgroundDiegeticLyrics(sc: ShotContext, shot: ShotType): 
 
   const { ctx, w, h, beat } = sc;
   const u = Math.max(0.68, Math.min(1.25, w / 1440));
-  const fullDiegetic = sc.subtitleMode === 'diegetic';
+  const placement = resolveLyricStagePlacement(line, shot);
+  const tiltRad = sc.reducedMotion ? 0 : (placement.tiltDeg * Math.PI) / 180;
 
   switch (shot) {
-    // Explosive Sky-Monument Hero Shots (activated in `diegetic` mode so `cinema` mode never duplicates text!)
+    // Explosive Sky-Monument Hero Shots
     case 's16_overpass_sunburst_low':
     case 's22_crest_leap_silhouette':
     case 's37_stormbreak_lightning_hero':
     case 's43_sunrise_halo_silhouette':
     case 's54_finale_solar_zenith_burst':
     case 's60_sky_lantern_ember_crest': {
-      if (!fullDiegetic) break;
-      const fontPx = 78 * u * (1 + beat.kickPulse * 0.04);
-      const baseY = h * 0.29;
+      const fontPx = 76 * u * (1 + beat.kickPulse * 0.04);
+      const baseY = h * 0.28;
+      ctx.save();
+      ctx.translate(w * 0.5, baseY);
+      ctx.rotate(tiltRad);
+      ctx.translate(-w * 0.5, -baseY);
       const run = drawThermodynamicRun(ctx, sc, line, w * 0.5, baseY, fontPx, 'center', {
         maxWidthPx: w * 0.84,
         accentHex: '#FEF08A',
@@ -451,72 +530,63 @@ export function renderMidgroundDiegeticLyrics(sc: ShotContext, shot: ShotType): 
           shadeHex: shot === 's37_stormbreak_lightning_hero' ? '#0C4A6E' : '#7C2D12',
         },
       });
-      if (line.echoText) {
-        ctx.save();
-        ctx.font = `800 ${Math.round(14 * u)}px "Outfit", "JetBrains Mono", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
-        ctx.fillText(line.echoText, w * 0.5, baseY + 26 * u);
-        ctx.restore();
-      }
+      drawKineticRuleAndEcho(ctx, sc, line, w * 0.5, baseY, 'center', run.totalWidth, u, '#FEF08A');
       maybeSpark(sc, run.sparkX, run.sparkY, 1.15 * u, run.hasActiveSpark ? 1.0 : 0.35);
+      ctx.restore();
       break;
     }
 
     case 's45_kamakura_whistle_coast': {
-      // Whistle Solo: Musical glyphs & notes dancing along the top golden coastal stave
-      const displayStr = fullDiegetic ? line.text : '♪  ♫  COASTAL WHISTLE SOLO  ♪  ♫';
-      const chars = Array.from(displayStr);
-      const fontPx = (fullDiegetic ? 38 : 26) * u;
-      const startX = w * 0.12;
-      const spanW = w * 0.76;
-      const stepX = spanW / Math.max(1, chars.length);
+      // Whistle Solo: Pure musical notes dancing along the golden coastal stave wave
+      const notes = ['♪', '♫', '♪', '♬', '♪', '♫', '♪', '♫'];
+      const fontPx = 30 * u;
+      const startX = w * 0.16;
+      const spanW = w * 0.68;
+      const stepX = spanW / notes.length;
 
       ctx.save();
-      ctx.font = `800 ${Math.round(fontPx)}px "Outfit", "Noto Sans SC", sans-serif`;
+      ctx.font = `800 ${Math.round(fontPx)}px "Outfit", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      for (let i = 0; i < chars.length; i++) {
-        const ch = chars[i];
-        if (ch === ' ') continue;
+      for (let i = 0; i < notes.length; i++) {
         const gx = startX + (i + 0.5) * stepX;
         const env = Math.sin((gx / w) * Math.PI);
-        const amp = (16 + sc.bands.high * 38 + beat.snarePulse * 18) * env;
+        const amp = (16 + sc.bands.high * 36 + beat.snarePulse * 18) * env;
         const waveArg = gx * 0.015 - sc.timeSec * 8.5;
-        const gy = h * 0.25 + Math.sin(waveArg) * amp - 16 * u;
-        ctx.fillStyle = ch === '♪' || ch === '♫' ? '#FEF08A' : 'rgba(240, 253, 250, 0.92)';
+        const gy = h * 0.24 + Math.sin(waveArg) * amp - 14 * u;
+        ctx.fillStyle = i % 2 === 0 ? '#FEF08A' : 'rgba(240, 253, 250, 0.92)';
         ctx.shadowColor = 'rgba(6, 44, 67, 0.75)';
         ctx.shadowBlur = 8;
-        ctx.fillText(ch, gx, gy);
+        ctx.fillText(notes[i], gx, gy);
       }
       ctx.restore();
       break;
     }
 
     default: {
-      // S04, S10, S19, S40, S57, S62, S65: Clean sky typography when user selects `diegetic` mode
-      // (NO yellow CAD sky ruler in S04!)
-      if (!fullDiegetic) break;
-      const align = sc.shotSpec.lyricZone.endsWith('right')
-        ? 'right'
-        : sc.shotSpec.lyricZone.includes('center')
-        ? 'center'
-        : 'left';
+      // S04, S10, S19, S40, S57, S62, S65: Spatial sky kinetic typography integrated behind foreground silhouettes/cables
+      const align = placement.align;
       const anchorX =
         align === 'center' ? w * 0.5 : align === 'right' ? w * 0.91 : w * 0.09;
-      const baseY = h * 0.28;
-      drawThermodynamicRun(ctx, sc, line, anchorX, baseY, 54 * u, align, {
+      const baseY = h * 0.27;
+      ctx.save();
+      ctx.translate(anchorX, baseY);
+      ctx.rotate(tiltRad);
+      ctx.translate(-anchorX, -baseY);
+      const run = drawThermodynamicRun(ctx, sc, line, anchorX, baseY, 52 * u, align, {
         maxWidthPx: w * 0.62,
         accentHex: '#FDE047',
         darkCoreStroke: true,
       });
+      drawKineticRuleAndEcho(ctx, sc, line, anchorX, baseY, align, run.totalWidth, u, '#FDE047');
+      ctx.restore();
       break;
     }
   }
 }
 
 /**
- * LAYER 2: Surface-Coupled Diegetic Typography inside Physical Props & Architectural Surfaces
+ * LAYER 2: Surface-Coupled Diegetic Typography inside Physical Props & Spatial Stage Zones
  */
 export function renderSurfaceDiegeticLyrics(sc: ShotContext, shot: ShotType): void {
   const line = sc.activeLine;
@@ -524,7 +594,8 @@ export function renderSurfaceDiegeticLyrics(sc: ShotContext, shot: ShotType): vo
 
   const { ctx, w, h, beat } = sc;
   const u = Math.max(0.68, Math.min(1.25, w / 1440));
-  const fullDiegetic = sc.subtitleMode === 'diegetic';
+  const placement = resolveLyricStagePlacement(line, shot);
+  const tiltRad = sc.reducedMotion ? 0 : (placement.tiltDeg * Math.PI) / 180;
 
   switch (shot) {
     case 's13_misty_gantry_fork_pov': {
@@ -605,29 +676,40 @@ export function renderSurfaceDiegeticLyrics(sc: ShotContext, shot: ShotType): vo
       break;
     }
 
+    case 's01_soundhole_rosette':
+    case 's02_bridge_percussive_slap':
+    case 's03_hallway_wheels_wakeup':
+    case 's24_vinyl_baggage_turntable': {
+      // S01 prints the title physically inside the guitar luthier soundhole label;
+      // S02, S03 (acoustic guitar intro before vocals enter at 14.12s S04), & S24 are pure instrumental sections.
+      break;
+    }
+
     case 's38_storm_triptych_montage':
     case 's55_memory_era_triptych': {
-      // 3-Panel Montage Stamps with authentic era/storm labels (never fabricating lyrics!)
-      const labels =
-        shot === 's38_storm_triptych_montage'
-          ? ['01 · 密封阻雨', '02 · 替我装', '03 · 替我扛']
-          : ['2018 · 暮色启程', '2021 · 暴雨同行', '2026 · 替我装扛'];
+      // 3-Panel Montage Kinetic Stamps synchronized across the three panels
+      const labels = ['20" · 小黑', '替我装', '替我扛'];
       const centers = [w * 0.17, w * 0.5, w * 0.83];
-      const activeIdx = Math.min(2, Math.floor(sc.lineProgress * 3));
+      const activeIdx =
+        !sc.isPlaying && sc.timeSec - line.startTime < 0.12
+          ? 2
+          : Math.min(2, Math.floor(sc.lineProgress * 3));
 
       for (let p = 0; p < 3; p++) {
         const badgeW = Math.min(w * 0.27, 290 * u);
         const badgeH = 64 * u;
         ctx.save();
-        ctx.translate(centers[p], h * 0.7);
-        ctx.fillStyle = p === activeIdx ? 'rgba(18, 14, 10, 0.88)' : 'rgba(9, 10, 15, 0.76)';
+        ctx.translate(centers[p], h * 0.72);
+        const pop = p === activeIdx && !sc.reducedMotion ? 1 + beat.kickPulse * 0.045 : 1;
+        ctx.scale(pop, pop);
+        ctx.fillStyle = p <= activeIdx ? 'rgba(18, 14, 10, 0.88)' : 'rgba(9, 10, 15, 0.74)';
         ctx.strokeStyle = p === activeIdx ? '#FACC15' : 'rgba(244, 239, 230, 0.24)';
         ctx.lineWidth = p === activeIdx ? 2 : 1.1;
         roundRectPath(ctx, -badgeW * 0.5, -badgeH * 0.5, badgeW, badgeH, 7 * u);
         ctx.fill();
         ctx.stroke();
 
-        drawThermodynamicRun(ctx, sc, line, 0, 11 * u, 28 * u, 'center', {
+        drawThermodynamicRun(ctx, sc, line, 0, 11 * u, 30 * u, 'center', {
           textOverride: labels[p],
           maxWidthPx: badgeW - 24 * u,
           accentHex: '#FEF08A',
@@ -733,41 +815,50 @@ export function renderSurfaceDiegeticLyrics(sc: ShotContext, shot: ShotType): vo
         ctx.font = `600 ${Math.round(18 * u)}px "Outfit", "Noto Sans SC", sans-serif`;
         ctx.fillText('Ham ·《嘿！小黑》· 陪伴半生山海的安稳堡垒', w * 0.5, h * 0.35);
         ctx.restore();
-      } else if (fullDiegetic) {
-        drawThermodynamicRun(ctx, sc, line, w * 0.5, h * 0.25, 48 * u, 'center', {
+      } else {
+        const run = drawThermodynamicRun(ctx, sc, line, w * 0.5, h * 0.25, 48 * u, 'center', {
           maxWidthPx: w * 0.72,
           accentHex: '#FDE68A',
           darkCoreStroke: true,
         });
+        drawKineticRuleAndEcho(ctx, sc, line, w * 0.5, h * 0.25, 'center', run.totalWidth, u, '#FDE68A');
       }
       break;
     }
 
     default: {
-      if (!fullDiegetic) break;
-      // Clean scene-embedded typography for any surface_coupled shot when user selects `diegetic` mode
-      const isVert =
-        sc.shotSpec.lyricZone === 'poetic_vertical_left' ||
-        sc.shotSpec.lyricZone === 'poetic_vertical_right';
-      if (isVert) {
+      // Dynamic spatial kinetic typography placed across asymmetric stage zones (`sky_upper_*`, `stage_lower_*`, `poetic_vertical_*`, `chorus_impact_*`, `horizon_upper_center`)
+      if (placement.orientation === 'vertical') {
         const colX = sc.shotSpec.lyricZone === 'poetic_vertical_left' ? w * 0.12 : w * 0.88;
         drawVerticalPoeticColumn(sc, line, colX, h * 0.18, 34 * u, sc.chapter.accentHex);
       } else {
-        const align = sc.shotSpec.lyricZone.endsWith('right')
-          ? 'right'
-          : sc.shotSpec.lyricZone.includes('center')
-          ? 'center'
-          : 'left';
+        const align = placement.align;
         const anchorX =
           align === 'center' ? w * 0.5 : align === 'right' ? w * 0.91 : w * 0.09;
         const isLower = sc.shotSpec.lyricZone.startsWith('stage_lower');
         const baseY = isLower ? h * 0.74 : h * 0.24;
+        ctx.save();
+        ctx.translate(anchorX, baseY);
+        ctx.rotate(tiltRad);
+        ctx.translate(-anchorX, -baseY);
         const run = drawThermodynamicRun(ctx, sc, line, anchorX, baseY, 46 * u, align, {
           maxWidthPx: w * 0.64,
           accentHex: sc.chapter.accentHex,
           darkCoreStroke: true,
         });
+        drawKineticRuleAndEcho(
+          ctx,
+          sc,
+          line,
+          anchorX,
+          baseY,
+          align,
+          run.totalWidth,
+          u,
+          sc.chapter.accentHex
+        );
         maybeSpark(sc, run.sparkX, run.sparkY, 0.95 * u, run.hasActiveSpark ? 0.85 : 0.25);
+        ctx.restore();
       }
       break;
     }

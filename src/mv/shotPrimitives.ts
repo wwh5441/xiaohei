@@ -23,6 +23,7 @@ export interface ShotContext {
   beat: BeatState;
   bands: AudioBands;
   bonusStickers: number;
+  isPlaying?: boolean;
   reducedMotion: boolean;
 }
 
@@ -164,37 +165,194 @@ export function drawTyndallGodRays(
   rgbCsv: string,
   maxAlpha = 0.14
 ): void {
+  if (maxAlpha <= 0.005 || rayCount <= 0) return;
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
+
+  // Soft source atmospheric bloom so shafts never pinch to a sharp polygon vertex
+  const bloomR = Math.min(260, length * 0.28);
+  const bloom = ctx.createRadialGradient(originX, originY, 0, originX, originY, bloomR);
+  bloom.addColorStop(0, `rgba(${rgbCsv}, ${(maxAlpha * 0.65).toFixed(3)})`);
+  bloom.addColorStop(0.45, `rgba(${rgbCsv}, ${(maxAlpha * 0.22).toFixed(3)})`);
+  bloom.addColorStop(1, `rgba(${rgbCsv}, 0)`);
+  ctx.fillStyle = bloom;
+  ctx.beginPath();
+  ctx.arc(originX, originY, bloomR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Concentric multi-plume feathered shafts (eliminates razor-sharp triangle edges at zero GPU/CPU blur cost)
+  const layers = [
+    { widthScale: 1.55, alphaWeight: 0.22 },
+    { widthScale: 0.95, alphaWeight: 0.34 },
+    { widthScale: 0.46, alphaWeight: 0.44 },
+  ];
+
   for (let i = 0; i < rayCount; i++) {
     const t = rayCount === 1 ? 0.5 : i / (rayCount - 1);
-    const angle = baseAngleRad - spreadRad * 0.5 + t * spreadRad + Math.sin(i * 2.7) * 0.03;
-    const halfSpread = 0.028 + (i % 3) * 0.014;
-    const x1 = originX + Math.cos(angle - halfSpread) * length;
-    const y1 = originY + Math.sin(angle - halfSpread) * length;
-    const x2 = originX + Math.cos(angle + halfSpread) * length;
-    const y2 = originY + Math.sin(angle + halfSpread) * length;
+    const angle = baseAngleRad - spreadRad * 0.5 + t * spreadRad + Math.sin(i * 2.7) * 0.025;
+    const baseHalfAngle = 0.036 + (i % 3) * 0.016;
+    const rayAlpha = maxAlpha * (0.62 + (i % 2) * 0.38);
 
-    const grad = ctx.createLinearGradient(
-      originX,
-      originY,
-      (x1 + x2) * 0.5,
-      (y1 + y2) * 0.5
-    );
-    const a = maxAlpha * (0.65 + (i % 2) * 0.35);
-    grad.addColorStop(0, `rgba(${rgbCsv}, ${a.toFixed(3)})`);
-    grad.addColorStop(0.55, `rgba(${rgbCsv}, ${(a * 0.42).toFixed(3)})`);
-    grad.addColorStop(1, `rgba(${rgbCsv}, 0)`);
+    ctx.save();
+    ctx.translate(originX, originY);
+    ctx.rotate(angle);
 
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(originX, originY);
-    ctx.lineTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.closePath();
-    ctx.fill();
+    for (const layer of layers) {
+      const w0 = (10 + (i % 2) * 6) * layer.widthScale;
+      const w1 = Math.tan(baseHalfAngle * layer.widthScale) * length;
+      const a = rayAlpha * layer.alphaWeight;
+
+      const grad = ctx.createLinearGradient(0, 0, length, 0);
+      grad.addColorStop(0, `rgba(${rgbCsv}, ${(a * 0.55).toFixed(3)})`);
+      grad.addColorStop(0.16, `rgba(${rgbCsv}, ${a.toFixed(3)})`);
+      grad.addColorStop(0.62, `rgba(${rgbCsv}, ${(a * 0.36).toFixed(3)})`);
+      grad.addColorStop(1, `rgba(${rgbCsv}, 0)`);
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, -w0);
+      ctx.lineTo(length, -w1);
+      ctx.lineTo(length, w1);
+      ctx.lineTo(0, w0);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
   ctx.restore();
+}
+
+export interface PrecisionWheelOpts {
+  cx: number;
+  cy: number;
+  radius: number;
+  angleRad: number;
+  accentHex?: string;
+  weathered?: boolean;
+  twinDepthOffset?: { dx: number; dy: number };
+}
+
+/**
+ * High-detail machined RIMOWA Multiwheel dual-caster assembly (pure industrial wheel & fork,
+ * zero severed human limbs or floating flat box) for bespoke macro compositions.
+ */
+export function drawPrecisionRimowaWheel(
+  ctx: CanvasRenderingContext2D,
+  opts: PrecisionWheelOpts
+): void {
+  const {
+    cx,
+    cy,
+    radius: r,
+    angleRad,
+    accentHex = '#f59e0b',
+    weathered = false,
+    twinDepthOffset = { dx: r * 0.22, dy: -r * 0.06 },
+  } = opts;
+
+  const drawDisk = (wx: number, wy: number, wr: number, isRear: boolean) => {
+    ctx.save();
+    ctx.translate(wx, wy);
+    ctx.rotate(angleRad);
+    if (isRear) ctx.globalAlpha = 0.82;
+
+    // Outer high-density matte rubber tire with subtle tread bevel
+    const tireGrad = ctx.createRadialGradient(-wr * 0.2, -wr * 0.2, wr * 0.55, 0, 0, wr);
+    tireGrad.addColorStop(0, '#27272f');
+    tireGrad.addColorStop(0.76, '#121217');
+    tireGrad.addColorStop(0.92, weathered ? '#3f3b37' : '#26262e');
+    tireGrad.addColorStop(1, '#09090c');
+    ctx.fillStyle = tireGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, wr, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Recessed inner cavity behind spokes
+    ctx.fillStyle = '#07070a';
+    ctx.beginPath();
+    ctx.arc(0, 0, wr * 0.76, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brushed anodized aluminum inner rim ring
+    ctx.strokeStyle = isRear ? '#52525b' : '#a1a1aa';
+    ctx.lineWidth = wr * 0.045;
+    ctx.beginPath();
+    ctx.arc(0, 0, wr * 0.75, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 5 twin-beam machined spokes
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      ctx.strokeStyle = isRear ? '#71717a' : '#e4e4e7';
+      ctx.lineWidth = wr * 0.055;
+      ctx.lineCap = 'round';
+      for (const spread of [-0.11, 0.11]) {
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a + spread * 1.4) * wr * 0.24, Math.sin(a + spread * 1.4) * wr * 0.24);
+        ctx.lineTo(Math.cos(a + spread * 0.55) * wr * 0.73, Math.sin(a + spread * 0.55) * wr * 0.73);
+        ctx.stroke();
+      }
+    }
+
+    if (weathered && !isRear) {
+      ctx.strokeStyle = 'rgba(231, 229, 228, 0.36)';
+      ctx.lineWidth = Math.max(1.2, wr * 0.022);
+      ctx.beginPath();
+      ctx.arc(0, 0, wr * 0.88, 0.35, 1.22);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, wr * 0.85, 2.35, 3.15);
+      ctx.stroke();
+    }
+
+    // Center precision bearing hub & warm metallic ring
+    ctx.fillStyle = '#18181f';
+    ctx.strokeStyle = isRear ? '#52525b' : accentHex;
+    ctx.lineWidth = Math.max(1.8, wr * 0.04);
+    ctx.beginPath();
+    ctx.arc(0, 0, wr * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#d4d4d8';
+    ctx.beginPath();
+    ctx.arc(0, 0, wr * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  // 1. Rear twin caster wheel in 3D axle depth
+  drawDisk(cx + twinDepthOffset.dx, cy + twinDepthOffset.dy, r * 0.94, true);
+
+  // 2. Fore twin caster wheel
+  drawDisk(cx, cy, r, false);
+
+  // 3. Sculpted swan-neck caster fork & upper swivel crown
+  const forkGrad = ctx.createLinearGradient(cx - r * 0.35, cy - r * 1.18, cx + r * 0.35, cy);
+  forkGrad.addColorStop(0, '#3f3f4a');
+  forkGrad.addColorStop(0.5, '#23232b');
+  forkGrad.addColorStop(1, '#121217');
+  ctx.fillStyle = forkGrad;
+  ctx.strokeStyle = 'rgba(212, 212, 216, 0.48)';
+  ctx.lineWidth = Math.max(1.2, r * 0.024);
+
+  // Swivel crown bell
+  roundRectPath(ctx, cx - r * 0.56, cy - r * 1.24, r * 1.18, r * 0.34, r * 0.14);
+  ctx.fill();
+  ctx.stroke();
+
+  // Curved fork arm down to center axle
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.22, cy - r * 0.94);
+  ctx.lineTo(cx + r * 0.22, cy - r * 0.94);
+  ctx.quadraticCurveTo(cx + r * 0.18, cy - r * 0.35, cx + r * 0.14, cy + r * 0.04);
+  ctx.arc(cx, cy, r * 0.14, 0, Math.PI);
+  ctx.quadraticCurveTo(cx - r * 0.18, cy - r * 0.35, cx - r * 0.22, cy - r * 0.94);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
 }
 
 export function drawStarfieldAndClouds(
@@ -432,12 +590,15 @@ export function drawPriorityCard(
   ctx.translate(x, y);
   ctx.rotate(rot);
 
+  const ku = w / 220;
+  const rCorner = Math.max(4, 8 * ku);
+
   ctx.fillStyle = 'rgba(0,0,0,0.48)';
-  roundRectPath(ctx, -w * 0.5 + 5, -h * 0.5 + 8, w, h, 8);
+  roundRectPath(ctx, -w * 0.5 + 4 * ku, -h * 0.5 + 6 * ku, w, h, rCorner);
   ctx.fill();
 
   ctx.fillStyle = bgHex;
-  roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 8);
+  roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, rCorner);
   ctx.fill();
 
   const sheen = ctx.createLinearGradient(-w * 0.5, -h * 0.5, w * 0.5, h * 0.5);
@@ -445,50 +606,50 @@ export function drawPriorityCard(
   sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
   sheen.addColorStop(1, 'rgba(0,0,0,0.12)');
   ctx.fillStyle = sheen;
-  roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 8);
+  roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, rCorner);
   ctx.fill();
 
   ctx.strokeStyle = fgHex;
   ctx.globalAlpha = 0.35;
-  ctx.lineWidth = 1.8;
-  roundRectPath(ctx, -w * 0.5 + 6, -h * 0.5 + 6, w - 12, h - 12, 5);
+  ctx.lineWidth = Math.max(1, 1.6 * ku);
+  roundRectPath(ctx, -w * 0.5 + 5 * ku, -h * 0.5 + 5 * ku, w - 10 * ku, h - 10 * ku, Math.max(3, 5 * ku));
   ctx.stroke();
   ctx.globalAlpha = 1;
 
   ctx.fillStyle = '#b45309';
   ctx.beginPath();
-  ctx.arc(-w * 0.5 + 18, 0, 7.2, 0, Math.PI * 2);
+  ctx.arc(-w * 0.5 + 16 * ku, 0, 6.2 * ku, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#09090b';
   ctx.beginPath();
-  ctx.arc(-w * 0.5 + 18, 0, 4.6, 0, Math.PI * 2);
+  ctx.arc(-w * 0.5 + 16 * ku, 0, 3.8 * ku, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = fgHex;
-  ctx.font = `900 ${Math.round(h * 0.34)}px "Outfit", sans-serif`;
+  ctx.font = `900 ${Math.max(9, Math.round(h * 0.31))}px "Outfit", sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(code, -w * 0.5 + 34, -h * 0.11);
+  ctx.fillText(code, -w * 0.5 + 29 * ku, -h * 0.12);
 
-  ctx.font = `600 ${Math.round(h * 0.16)}px "Noto Sans SC", "Outfit", sans-serif`;
-  ctx.fillText(subtitle, -w * 0.5 + 34, h * 0.22);
+  ctx.font = `600 ${Math.max(7, Math.round(h * 0.15))}px "Noto Sans SC", "Outfit", sans-serif`;
+  ctx.fillText(subtitle, -w * 0.5 + 29 * ku, h * 0.22);
 
-  const barRight = w * 0.5 - 14;
-  for (let b = 0; b < 9; b++) {
-    const bw = b % 3 === 0 ? 3 : 1.5;
-    ctx.fillRect(barRight - b * 4.8, -h * 0.3, bw, h * 0.6);
+  const barRight = w * 0.5 - 11 * ku;
+  for (let b = 0; b < 8; b++) {
+    const bw = (b % 3 === 0 ? 2.6 : 1.3) * ku;
+    ctx.fillRect(barRight - b * 4.4 * ku, -h * 0.28, bw, h * 0.56);
   }
 
   ctx.save();
-  ctx.translate(w * 0.22, -h * 0.16);
+  ctx.translate(w * 0.16, -h * 0.16);
   ctx.rotate(-0.22);
   ctx.strokeStyle = fgHex;
-  ctx.globalAlpha = 0.68;
-  ctx.lineWidth = 1.8;
+  ctx.globalAlpha = 0.62;
+  ctx.lineWidth = Math.max(1, 1.5 * ku);
   ctx.beginPath();
-  ctx.arc(0, 0, h * 0.24, 0, Math.PI * 2);
+  ctx.arc(0, 0, h * 0.22, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.font = `700 ${Math.round(h * 0.14)}px "JetBrains Mono", monospace`;
+  ctx.font = `700 ${Math.max(6, Math.round(h * 0.13))}px "JetBrains Mono", monospace`;
   ctx.textAlign = 'center';
   ctx.fillText(year, 0, 1);
   ctx.restore();

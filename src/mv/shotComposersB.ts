@@ -7,12 +7,12 @@ import {
   drawRealisticHandOnRimowaHandle,
   drawRimowaCabin,
   drawSeatedAirportTravelerWithRimowa,
-  drawTrueMacroWheelAndBoot,
 } from './humanRimowaRig';
 import {
   drawAnamorphicFlare,
   drawCinemaBokeh,
   drawOrganicMistForest,
+  drawPrecisionRimowaWheel,
   drawPriorityCard,
   drawTyndallGodRays,
   hash01,
@@ -352,10 +352,6 @@ function renderS26SolariFidsDelayedMacro(sc: ShotContext): void {
 
   drawRow(by + 74 * u, 'MU 2020   SHANGHAI', 'GATE B20', '暴雨延误 DELAYED', '#dc2626');
   // Middle Hero Split-Flap Row (`h * 0.52`) is rendered live by `renderSurfaceDiegeticLyrics` (`s26_solari_fids_delayed_macro`)!
-  if (sc.subtitleMode === 'cinema') {
-    // When in cinema subtitle mode, `s26` ALSO flips live mechanical tiles on the physical FIDS board!
-    // (Handled unconditionally in `diegeticLyrics.ts` case `s26_solari_fids_delayed_macro`)
-  }
   drawRow(by + bh - 118 * u, 'CA 1809   CHENGDU', 'GATE B22', '气象管制 WEATHER', '#b45309');
   drawRow(by + bh - 62 * u, 'CZ 3542   XIAMEN', 'GATE A08', '等待通知 HOLD', '#334155');
 
@@ -942,19 +938,54 @@ function renderS38StormTriptychMontage(sc: ShotContext): void {
   });
   ctx.restore();
 
-  // Panel 3
+  // Panel 3: Precision Dual-Caster Wheel Slicing Storm Puddle (Full-Bleed Corner, Zero Severed Leg)
   ctx.save();
   ctx.beginPath();
   ctx.rect(x2, 0, w - x2, h);
   ctx.clip();
-  ctx.fillStyle = '#08121e';
-  ctx.fillRect(x2, 0, w - x2, h);
-  ctx.translate(x2 - w * 0.22, 0);
-  drawTrueMacroWheelAndBoot(sc, h * 0.76, {
-    wheelRadiusPx: 44,
-    roosterSpray: true,
-    showBoot: false,
+  const pw = w - x2;
+  const pRoadY = h * 0.75;
+  const pSky = ctx.createLinearGradient(0, 0, 0, pRoadY);
+  pSky.addColorStop(0, '#06101d');
+  pSky.addColorStop(1, '#0f3654');
+  ctx.fillStyle = pSky;
+  ctx.fillRect(x2, 0, pw, pRoadY);
+  ctx.fillStyle = '#050b14';
+  ctx.fillRect(x2, pRoadY, pw, h - pRoadY);
+
+  // Full-bleed lower shell entering from top-right of Panel 3
+  const shellLeft = x2 + pw * 0.28;
+  const shellBot = pRoadY - 94;
+  ctx.fillStyle = '#141722';
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.42)';
+  ctx.lineWidth = 2;
+  roundRectPath(ctx, shellLeft, -60, pw * 0.9, shellBot + 60, 22);
+  ctx.fill();
+  ctx.stroke();
+
+  const wCx = x2 + pw * 0.52;
+  const wR = Math.min(62, pw * 0.17);
+  drawPrecisionRimowaWheel(ctx, {
+    cx: wCx,
+    cy: pRoadY - wR,
+    radius: wR,
+    angleRad: sc.wheelAngle,
+    accentHex: '#38bdf8',
   });
+
+  // Curved translucent storm-puddle spray arcs
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let s = 0; s < 5; s++) {
+    const lift = 28 + s * 18 + Math.sin(timeSec * 9 + s) * 8;
+    ctx.strokeStyle = s % 2 === 0 ? 'rgba(56, 189, 248, 0.58)' : 'rgba(253, 224, 71, 0.52)';
+    ctx.lineWidth = 3 - s * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(wCx - wR * 0.4, pRoadY - 4);
+    ctx.quadraticCurveTo(wCx - wR * 1.6, pRoadY - lift, x2 + 12, pRoadY - lift * 0.55);
+    ctx.stroke();
+  }
+  ctx.restore();
   ctx.restore();
 
   ctx.strokeStyle = '#fde047';
@@ -968,26 +999,104 @@ function renderS38StormTriptychMontage(sc: ShotContext): void {
 }
 
 function renderS39HydroplaneWheelSpray(sc: ShotContext): void {
-  const { ctx, w, h, timeSec } = sc;
-  const roadY = h * 0.76;
+  const { ctx, w, h, timeSec, beat } = sc;
+  const roadY = h * 0.77;
+  const u = Math.max(0.72, Math.min(1.25, w / 1440));
 
-  // High-speed post-storm wet asphalt macro with cyan-gold rooster-tail water spray!
+  // Low-Angle Post-Storm Hydroplane Splash Hero ("冲破风雨" — Full Tilted 20" Xiaohei Carving Curved Water Wings!)
   const sky = ctx.createLinearGradient(0, 0, 0, roadY);
-  sky.addColorStop(0, '#06101e');
-  sky.addColorStop(0.6, '#0e3452');
+  sky.addColorStop(0, '#040a14');
+  sky.addColorStop(0.48, '#0b2942');
+  sky.addColorStop(0.82, '#0e7490');
   sky.addColorStop(1, '#f59e0b');
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, roadY);
 
-  ctx.fillStyle = '#08101a';
-  ctx.fillRect(0, roadY, w, h - roadY);
-  drawRainGlassOverlay(ctx, w, roadY, timeSec, 20, 0.18);
+  // Soft storm-clearing golden break rays descending from parted clouds at top right
+  drawTyndallGodRays(ctx, w * 0.82, -28, 6, 2.22, 0.52, h * 1.05, '254, 240, 138', 0.2);
 
-  drawTrueMacroWheelAndBoot(sc, roadY + 6, {
-    wheelRadiusPx: 56,
-    roosterSpray: true,
-    showBoot: true,
+  // Distant rain-washed coastal guardrail & blurred amber beacons
+  ctx.fillStyle = '#091524';
+  ctx.fillRect(0, roadY - 18 * u, w, 6 * u);
+  for (let p = 0; p < 10; p++) {
+    const px = (((p * 180 * u - sc.scrollDist * 1.3) % (w + 180 * u)) + (w + 180 * u)) % (w + 180 * u) - 90 * u;
+    ctx.fillRect(px, roadY - 26 * u, 6 * u, 26 * u);
+  }
+
+  // Mirror-wet dark tarmac with golden & cyan storm reflections
+  const tarmac = ctx.createLinearGradient(0, roadY, 0, h);
+  tarmac.addColorStop(0, '#0d1e30');
+  tarmac.addColorStop(0.45, '#07111d');
+  tarmac.addColorStop(1, '#03070d');
+  ctx.fillStyle = tarmac;
+  ctx.fillRect(0, roadY, w, h - roadY);
+
+  const reflGlow = ctx.createRadialGradient(w * 0.72, roadY + 12 * u, 10, w * 0.62, roadY + 40 * u, w * 0.48);
+  reflGlow.addColorStop(0, 'rgba(251, 191, 36, 0.36)');
+  reflGlow.addColorStop(0.55, 'rgba(14, 116, 144, 0.18)');
+  reflGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = reflGlow;
+  ctx.fillRect(0, roadY, w, h - roadY);
+
+  drawRainGlassOverlay(ctx, w, roadY, timeSec, 24, 0.16);
+
+  const heroCx = w * 0.5;
+  const heroBottomY = roadY + 10 * u;
+
+  // Back-layer translucent cyan hydroplane spray wing
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let wIdx = 0; wIdx < 6; wIdx++) {
+    const f = wIdx / 5;
+    const flutter = Math.sin(timeSec * 11 + wIdx * 1.4) * 12 * u;
+    const wingGrad = ctx.createLinearGradient(heroCx - 40 * u, heroBottomY, heroCx - 380 * u, roadY - 160 * u);
+    wingGrad.addColorStop(0, 'rgba(186, 230, 253, 0.65)');
+    wingGrad.addColorStop(0.45, f % 2 === 0 ? 'rgba(56, 189, 248, 0.38)' : 'rgba(253, 224, 71, 0.36)');
+    wingGrad.addColorStop(1, 'rgba(14, 116, 144, 0)');
+    ctx.strokeStyle = wingGrad;
+    ctx.lineWidth = (14 - f * 8) * u;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(heroCx - 36 * u, roadY + 2 * u);
+    ctx.bezierCurveTo(
+      heroCx - (130 + f * 70) * u,
+      roadY - (28 + f * 48) * u + flutter,
+      heroCx - (240 + f * 95) * u,
+      roadY - (64 + f * 78) * u - flutter * 0.5,
+      heroCx - (350 + f * 110) * u,
+      roadY - (24 + f * 52) * u
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Dynamic tilted 20" RIMOWA Xiaohei slicing cleanly across the flooded tarmac!
+  drawRimowaCabin(sc, {
+    cx: heroCx,
+    bottomY: heroBottomY,
+    scale: 1.54,
+    tilt: 0.22,
+    handleRatio: 0.56,
+    warmHandleGlow: true,
+    stickerCount: 4,
+    showScuffs: true,
   });
+
+  // Foreground backlit golden & cyan water droplets kicked up by the twin Multiwheels
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let d = 0; d < 26; d++) {
+    const prog = ((timeSec * (1.8 + (d % 4) * 0.35) + hash01(d * 17.3)) % 1);
+    const dx = heroCx - 24 * u - prog * (340 + (d % 5) * 45) * u;
+    const arcY = Math.sin(prog * Math.PI) * (46 + (d % 6) * 22) * u;
+    const dy = roadY + 4 * u - arcY;
+    const r = (2.2 + (1 - prog) * 3.8 + beat.kickPulse * 1.4) * u;
+    ctx.fillStyle = d % 3 === 0 ? `rgba(254, 240, 138, ${(0.85 * (1 - prog)).toFixed(3)})` : `rgba(125, 211, 252, ${(0.82 * (1 - prog)).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.ellipse(dx, dy, r * 1.7, r * 0.85, -0.28, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function renderS40DawnBridgeSideProfile(sc: ShotContext): void {

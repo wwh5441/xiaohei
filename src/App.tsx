@@ -15,6 +15,7 @@ import {
   LYRIC_LINES,
   SONG_META,
   type CameraMode,
+  type SubtitleMode,
 } from './mv/mvData';
 import {
   computeBeatState,
@@ -34,9 +35,9 @@ const HEADER_SCENE_LINKS = [
 ] as const;
 
 export default function App() {
-  const { initialAutostart, initialSeekSec } = useMemo(() => {
+  const { initialAutostart, initialHidePoster, initialSeekSec } = useMemo(() => {
     if (typeof window === 'undefined') {
-      return { initialAutostart: false, initialSeekSec: 0 };
+      return { initialAutostart: false, initialHidePoster: false, initialSeekSec: 0 };
     }
     const params = new URLSearchParams(window.location.search);
     const rawT = Number(params.get('t'));
@@ -46,15 +47,17 @@ export default function App() {
         : 0;
     return {
       initialAutostart: params.get('autostart') === '1',
+      initialHidePoster: params.get('poster') === '0',
       initialSeekSec: validT,
     };
   }, []);
 
-  const [showPoster, setShowPoster] = useState(!initialAutostart);
+  const [showPoster, setShowPoster] = useState(!(initialAutostart || initialHidePoster));
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(initialSeekSec);
   const [duration, setDuration] = useState<number>(SONG_META.durationSec);
   const [cameraMode, setCameraMode] = useState<CameraMode>('auto');
+  const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>('cinema');
   const [isMuted, setIsMuted] = useState(false);
   const [dockRevealedWhilePlaying, setDockRevealedWhilePlaying] = useState(false);
   const [dockForceHidden, setDockForceHidden] = useState(false);
@@ -73,6 +76,7 @@ export default function App() {
     virtualTime: initialSeekSec,
     usingVirtualClock: false,
     cameraMode: 'auto' as CameraMode,
+    subtitleMode: 'cinema' as SubtitleMode,
     reducedMotion: false,
   });
 
@@ -138,6 +142,14 @@ export default function App() {
   }, [cameraMode]);
 
   useEffect(() => {
+    liveStateRef.current.subtitleMode = subtitleMode;
+  }, [subtitleMode]);
+
+  const toggleSubtitleMode = useCallback(() => {
+    setSubtitleMode((prev) => (prev === 'cinema' ? 'diegetic' : 'cinema'));
+  }, []);
+
+  useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     liveStateRef.current.reducedMotion = mq.matches;
     const onChange = (e: MediaQueryListEvent) => {
@@ -173,6 +185,8 @@ export default function App() {
         audio.currentTime = seekSec;
         liveStateRef.current.virtualTime = seekSec;
         setCurrentTime(seekSec);
+      } else if (Math.abs(audio.currentTime - liveStateRef.current.virtualTime) > 0.15) {
+        audio.currentTime = liveStateRef.current.virtualTime;
       }
 
       setShowPoster(false);
@@ -357,7 +371,12 @@ export default function App() {
       const audio = audioRef.current;
       let t = liveStateRef.current.virtualTime;
 
-      if (audio && !liveStateRef.current.usingVirtualClock) {
+      if (
+        audio &&
+        liveStateRef.current.isPlaying &&
+        !liveStateRef.current.usingVirtualClock &&
+        !audio.paused
+      ) {
         t = audio.currentTime;
         liveStateRef.current.virtualTime = t;
       } else if (liveStateRef.current.isPlaying) {
@@ -393,6 +412,7 @@ export default function App() {
         beat,
         bands,
         cameraMode: liveStateRef.current.cameraMode,
+        subtitleMode: liveStateRef.current.subtitleMode,
         reducedMotion: liveStateRef.current.reducedMotion,
       });
 
@@ -433,6 +453,8 @@ export default function App() {
         seekTo(liveStateRef.current.virtualTime - 5);
       } else if (e.code === 'KeyB') {
         triggerCenterSticker();
+      } else if (e.code === 'KeyC') {
+        toggleSubtitleMode();
       } else if (e.code === 'KeyH') {
         toggleDockVisibility();
       } else if (e.code === 'KeyL') {
@@ -451,6 +473,7 @@ export default function App() {
     startPlayback,
     toggleDockVisibility,
     togglePlay,
+    toggleSubtitleMode,
     triggerCenterSticker,
   ]);
 
@@ -480,15 +503,19 @@ export default function App() {
       : 'paused';
     document.body.dataset.chapter = activeChapter.id;
     document.body.dataset.shot = activeShotInfo.shot;
+    document.body.dataset.shotCode = activeShotInfo.shotCode;
+    document.body.dataset.subtitleMode = subtitleMode;
     document.body.dataset.dock = dockVisible ? 'visible' : 'hidden';
     document.body.dataset.lyricZone = activePlacement.zone;
   }, [
     activeChapter.id,
     activePlacement.zone,
     activeShotInfo.shot,
+    activeShotInfo.shotCode,
     dockVisible,
     isPlaying,
     showPoster,
+    subtitleMode,
   ]);
 
   return (
@@ -510,6 +537,9 @@ export default function App() {
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d) && d > 0) setDuration(d);
+          if (!liveStateRef.current.isPlaying && liveStateRef.current.virtualTime > 0) {
+            e.currentTarget.currentTime = liveStateRef.current.virtualTime;
+          }
         }}
         onSeeking={(e) => {
           const t = e.currentTarget.currentTime;
@@ -620,6 +650,8 @@ export default function App() {
             lineProgress={activeLineProgress}
             placement={activePlacement}
             dockVisible={dockVisible}
+            subtitleMode={subtitleMode}
+            currentTime={currentTime}
           />
         )}
       </main>
@@ -644,6 +676,7 @@ export default function App() {
           activeChapter={activeChapter}
           activeShotLabel={activeShotInfo.label}
           cameraMode={cameraMode}
+          subtitleMode={subtitleMode}
           isMuted={isMuted}
           dockVisible={dockVisible}
           lyricsOpen={lyricsOpen}
@@ -655,6 +688,10 @@ export default function App() {
           onRestart={handleRestart}
           onChangeCameraMode={(mode) => {
             setCameraMode(mode);
+            revealDockTemporarily(2600);
+          }}
+          onToggleSubtitleMode={() => {
+            toggleSubtitleMode();
             revealDockTemporarily(2600);
           }}
           onToggleMute={handleToggleMute}

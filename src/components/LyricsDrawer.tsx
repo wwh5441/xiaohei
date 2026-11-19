@@ -34,10 +34,10 @@ export function LyricsDrawer({
       <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-zinc-800">
         <div className="min-w-0">
           <h2 className="font-display text-base font-bold text-zinc-100 truncate">
-            逐句分镜剧本（21 机位）
+            逐句分镜剧本（66 镜零重复）
           </h2>
           <p className="text-xs text-zinc-400 truncate">
-            {SONG_META.artist} ·《{SONG_META.title}》· 点击任意句切镜跳转
+            {SONG_META.artist} ·《{SONG_META.title}》· S01–S66 逐句独立切镜
           </p>
         </div>
         <button
@@ -80,14 +80,22 @@ export function LyricsDrawer({
                       <div className="flex items-baseline justify-between gap-3 w-full">
                         <span className={`text-sm leading-snug ${isActive ? 'font-bold' : ''}`}>
                           {line.text}
+                          {line.echoText ? (
+                            <span className="ml-1.5 text-xs font-normal text-amber-300/80">
+                              {line.echoText}
+                            </span>
+                          ) : null}
                         </span>
                         <span className="font-mono-num text-xs text-zinc-500 shrink-0">
                           {formatTimecode(line.startTime)}
                         </span>
                       </div>
-                      <span className="text-[11px] text-zinc-500">
-                        镜头 · {line.shotLabel}
-                      </span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+                        <span className="font-mono-num font-bold text-amber-400/90">
+                          [{line.shotCode}]
+                        </span>
+                        <span className="truncate">{line.shotLabel}</span>
+                      </div>
                     </button>
                   );
                 })}

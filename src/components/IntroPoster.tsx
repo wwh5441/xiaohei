@@ -41,7 +41,7 @@ export function IntroPoster({ coverUrl, onStartMV }: IntroPosterProps) {
               </h1>
 
               <p className="max-w-xl text-sm sm:text-base leading-relaxed text-zinc-300">
-                致陪伴半生奔波的二十寸黑色拉杆箱——从斑驳堆叠的优先卡、暴雨延误的深夜候机屏、掌心拉杆余温、咽下悲欢的微光树洞，到家门口斜阳与烫金姓名牌。全曲 21 组电影机位逐句切镜，与老伙计再度启程。
+                致陪伴半生奔波的二十寸黑色拉杆箱——从木吉他音孔起振、扇形优先卡勋章、暴雨延误的机械翻页屏、咽下悲欢的古树微光，到玄关落叶与乌尤尼盐湖镜面终章。全曲 66 组零重复电影分镜（S01–S66）逐句切镜，与老伙计再度启程。
               </p>
             </div>
 

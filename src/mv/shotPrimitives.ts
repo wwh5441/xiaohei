@@ -1,4 +1,9 @@
-import { type LyricLine, type MVChapter } from './mvData';
+import {
+  type LyricLine,
+  type MVChapter,
+  type ShotSpec,
+  type SubtitleMode,
+} from './mvData';
 import { clamp01, type AudioBands, type BeatState } from './mvTimeline';
 import { drawRimowaCabin } from './humanRimowaRig';
 
@@ -13,6 +18,8 @@ export interface ShotContext {
   activeLine?: LyricLine;
   nextLine?: LyricLine | null;
   chapter: MVChapter;
+  shotSpec: ShotSpec;
+  subtitleMode: SubtitleMode;
   beat: BeatState;
   bands: AudioBands;
   bonusStickers: number;
@@ -46,11 +53,9 @@ export interface SuitcaseDrawOpts {
   warmHandleGlow?: boolean;
   showScuffs?: boolean;
   stickerCount?: number;
+  wheelAngleOverride?: number;
 }
 
-/**
- * High-craft 2.5D procedural illustration of "小黑" (20-inch matte-black grooved RIMOWA Cabin)
- */
 export function drawDetailedXiaohei(sc: ShotContext, opts: SuitcaseDrawOpts): void {
   drawRimowaCabin(sc, {
     cx: opts.cx,
@@ -61,19 +66,18 @@ export function drawDetailedXiaohei(sc: ShotContext, opts: SuitcaseDrawOpts): vo
     warmHandleGlow: opts.warmHandleGlow,
     showScuffs: opts.showScuffs,
     stickerCount: opts.stickerCount,
+    wheelAngleOverride: opts.wheelAngleOverride,
   });
 }
 
-/**
- * Deterministic pseudo-random [0..1) helper so procedural stars, windows & foliage never flicker
- */
 export function hash01(seed: number): number {
   const s = Math.sin(seed * 127.1 + 311.7) * 43758.5453123;
   return s - Math.floor(s);
 }
 
 /**
- * 85mm f/1.4 Prime Lens Depth-of-Field Bokeh Orbs with soft radial core + delicate optical aperture rim
+ * Restrained 85mm f/1.4 Prime Lens Depth-of-Field Bokeh Orbs:
+ * Creamy radial falloff without harsh artificial cartoon ring outlines.
  */
 export function drawCinemaBokeh(
   sc: ShotContext,
@@ -83,43 +87,34 @@ export function drawCinemaBokeh(
   opacityScale = 1
 ): void {
   const { ctx, w, h, timeSec, beat } = sc;
+  const effCount = Math.min(count, 16);
   ctx.save();
-  for (let i = 0; i < count; i++) {
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < effCount; i++) {
     const h1 = hash01(i * 3.17 + 1);
     const h2 = hash01(i * 7.91 + 2);
-    const nx = ((h1 * 1.18 + timeSec * (0.012 + (i % 4) * 0.006)) % 1.24) - 0.12;
-    const ny = h2 * 0.88 + Math.sin(timeSec * 0.65 + i * 1.3) * 0.028;
-    const radius = (14 + (i % 6) * 15) * (1 + beat.kickPulse * 0.14);
-    const alpha = clamp01((0.035 + (i % 4) * 0.024) * opacityScale);
+    const nx = ((h1 * 1.18 + timeSec * (0.01 + (i % 4) * 0.005)) % 1.24) - 0.12;
+    const ny = h2 * 0.86 + Math.sin(timeSec * 0.55 + i * 1.3) * 0.024;
+    const radius = (16 + (i % 5) * 16) * (1 + beat.kickPulse * 0.1);
+    const alpha = clamp01((0.028 + (i % 4) * 0.018) * opacityScale);
     const color = i % 2 === 0 ? primaryHex : secondaryHex;
     const cx = nx * w;
     const cy = ny * h;
 
-    const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
     grad.addColorStop(0, color);
-    grad.addColorStop(0.72, color);
+    grad.addColorStop(0.55, color);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
 
-    ctx.globalAlpha = alpha * 0.72;
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fill();
-
-    // Subtle optical lens-iris outer ring
-    ctx.globalAlpha = alpha * 1.15;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(0.8, radius * 0.045);
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.88, 0, Math.PI * 2);
-    ctx.stroke();
   }
   ctx.restore();
 }
 
-/**
- * Panavision 2.39:1 Anamorphic Horizontal Lens Flare + Optical Core Halo
- */
 export function drawAnamorphicFlare(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -133,36 +128,31 @@ export function drawAnamorphicFlare(
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
 
-  // Core soft bloom
-  const halo = ctx.createRadialGradient(x, y, 1, x, y, coreRadius * 2.8);
+  const halo = ctx.createRadialGradient(x, y, 1, x, y, coreRadius * 2.6);
   halo.addColorStop(0, '#ffffff');
   halo.addColorStop(0.22, colorHex);
   halo.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.globalAlpha = clamp01(intensity * 0.85);
+  ctx.globalAlpha = clamp01(intensity * 0.8);
   ctx.fillStyle = halo;
   ctx.beginPath();
-  ctx.arc(x, y, coreRadius * 2.8, 0, Math.PI * 2);
+  ctx.arc(x, y, coreRadius * 2.6, 0, Math.PI * 2);
   ctx.fill();
 
-  // Horizontal anamorphic streak
   const streak = ctx.createLinearGradient(x - streakWidth * 0.5, y, x + streakWidth * 0.5, y);
   streak.addColorStop(0, 'rgba(0,0,0,0)');
   streak.addColorStop(0.35, colorHex);
   streak.addColorStop(0.5, '#ffffff');
   streak.addColorStop(0.65, colorHex);
   streak.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.globalAlpha = clamp01(intensity * 0.58);
+  ctx.globalAlpha = clamp01(intensity * 0.5);
   ctx.fillStyle = streak;
   ctx.beginPath();
-  ctx.ellipse(x, y, streakWidth * 0.5, Math.max(1.6, coreRadius * 0.16), 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y, streakWidth * 0.5, Math.max(1.5, coreRadius * 0.14), 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
 }
 
-/**
- * Volumetric Crepuscular / Tyndall God-Rays filtering across atmospheric scenes
- */
 export function drawTyndallGodRays(
   ctx: CanvasRenderingContext2D,
   originX: number,
@@ -172,7 +162,7 @@ export function drawTyndallGodRays(
   spreadRad: number,
   length: number,
   rgbCsv: string,
-  maxAlpha = 0.16
+  maxAlpha = 0.14
 ): void {
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
@@ -207,9 +197,6 @@ export function drawTyndallGodRays(
   ctx.restore();
 }
 
-/**
- * Makoto Shinkai-inspired Twilight Starfield + Sculpted Backlit Cumulonimbus Cloud Banks
- */
 export function drawStarfieldAndClouds(
   sc: ShotContext,
   horizonY: number,
@@ -226,7 +213,6 @@ export function drawStarfieldAndClouds(
   const starCount = opts.starCount ?? 42;
 
   ctx.save();
-  // 1. Pinpoint zenith stars fading naturally toward horizon glow
   for (let i = 0; i < starCount; i++) {
     const sx = hash01(i * 11.3 + 5) * w;
     const sy = Math.pow(hash01(i * 19.7 + 9), 1.45) * horizonY * 0.68;
@@ -240,7 +226,6 @@ export function drawStarfieldAndClouds(
     ctx.arc(sx, sy, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // Delicate 4-point star cross on brightest zenith stars
     if (i % 14 === 0 && heightFade > 0.45) {
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 0.75;
@@ -254,7 +239,6 @@ export function drawStarfieldAndClouds(
   }
   ctx.globalAlpha = 1;
 
-  // Optional delicate crescent moon (positive geometric crescent + subtle lunar earthshine — never destination-out!)
   if (opts.moonPos) {
     const { x: mx, y: my, r: mr } = opts.moonPos;
     const moonGlow = ctx.createRadialGradient(mx, my, mr * 0.35, mx, my, mr * 3.6);
@@ -266,17 +250,13 @@ export function drawStarfieldAndClouds(
     ctx.arc(mx, my, mr * 3.6, 0, Math.PI * 2);
     ctx.fill();
 
-    // Faint lunar earthshine across the dark portion of the moon disc
     ctx.fillStyle = 'rgba(254, 249, 195, 0.055)';
     ctx.beginPath();
     ctx.arc(mx, my, mr, 0, Math.PI * 2);
     ctx.fill();
 
-    // Crisp sunlit crescent horn path (tilted waxing/waning crescent)
     const a0 = -Math.PI * 0.36;
     const a1 = Math.PI * 0.62;
-    const x1 = mx + Math.cos(a1) * mr;
-    const y1 = my + Math.sin(a1) * mr;
     const x0 = mx + Math.cos(a0) * mr;
     const y0 = my + Math.sin(a0) * mr;
     const am = (a0 + a1) * 0.5;
@@ -294,7 +274,6 @@ export function drawStarfieldAndClouds(
     ctx.fill();
   }
 
-  // 2. Swept Atmospheric Stratus Ribbons & Horizon Haze (replaces overlapping cartoon oval puffs!)
   const drift = timeSec * (opts.driftSpeed ?? 9);
   const span = Math.max(680, w * 0.62);
   for (let layer = 0; layer < 3; layer++) {
@@ -331,10 +310,6 @@ export function drawStarfieldAndClouds(
   ctx.restore();
 }
 
-/**
- * OpenFilm-Grade Architectural Massing Skyline with Structural Wireframe Edge Hairlines & Pinpoint Horizon Lights
- * (eliminates giant cartoon Lego window squares).
- */
 export function drawDistantCitySkyline(
   sc: ShotContext,
   horizonY: number,
@@ -356,7 +331,6 @@ export function drawDistantCitySkyline(
   const offsetPx = parallax % blockStep;
 
   ctx.save();
-  // Layer 1: Far atmospheric architectural massing + setback crowns
   ctx.fillStyle = opts.secondarySilhouetteHex;
   for (let i = -2; i < totalSpan; i++) {
     const idx = baseIdx + i;
@@ -376,7 +350,6 @@ export function drawDistantCitySkyline(
     }
   }
 
-  // Layer 2: Crisp foreground architectural silhouettes + 0.8px wireframe edge lines + pinpoint horizon lights
   for (let i = -2; i < totalSpan; i++) {
     const idx = baseIdx + i;
     const hSeed = hash01(idx * 13.37 + 41);
@@ -388,7 +361,6 @@ export function drawDistantCitySkyline(
     ctx.fillStyle = opts.silhouetteHex;
     ctx.fillRect(bx, topY, bw, bh + 1);
 
-    // Subtle OpenFilm-style 0.8px structural edge & vertical mullion hairlines
     ctx.strokeStyle = 'rgba(244, 239, 230, 0.10)';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
@@ -401,7 +373,6 @@ export function drawDistantCitySkyline(
     }
     ctx.stroke();
 
-    // Sparse, ultra-fine horizontal floor-slit & pinpoint lights (1.2–1.5px, never Lego squares!)
     const cols = Math.max(2, Math.floor((bw - 8) / 5.5));
     const rows = Math.max(3, Math.floor((bh - 8) / 6.2));
     for (let r = 0; r < rows; r++) {
@@ -419,7 +390,6 @@ export function drawDistantCitySkyline(
     ctx.globalAlpha = 1;
   }
 
-  // Soft horizon atmospheric glow band + delicate water reflection hairlines
   const haze = ctx.createLinearGradient(0, horizonY - 22, 0, horizonY + 12);
   haze.addColorStop(0, 'rgba(251, 191, 36, 0)');
   haze.addColorStop(0.7, 'rgba(251, 191, 36, 0.14)');
@@ -445,9 +415,6 @@ export function drawDistantCitySkyline(
   ctx.restore();
 }
 
-/**
- * Draws an authentic serrated airline PRIORITY baggage tag with string eyelet & postmark
- */
 export function drawPriorityCard(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -465,12 +432,10 @@ export function drawPriorityCard(
   ctx.translate(x, y);
   ctx.rotate(rot);
 
-  // Soft realistic paper elevation shadow
   ctx.fillStyle = 'rgba(0,0,0,0.48)';
   roundRectPath(ctx, -w * 0.5 + 5, -h * 0.5 + 8, w, h, 8);
   ctx.fill();
 
-  // Tag card body with subtle paper sheen gradient
   ctx.fillStyle = bgHex;
   roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 8);
   ctx.fill();
@@ -483,7 +448,6 @@ export function drawPriorityCard(
   roundRectPath(ctx, -w * 0.5, -h * 0.5, w, h, 8);
   ctx.fill();
 
-  // Inner border
   ctx.strokeStyle = fgHex;
   ctx.globalAlpha = 0.35;
   ctx.lineWidth = 1.8;
@@ -491,7 +455,6 @@ export function drawPriorityCard(
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // Brass reinforced string hole eyelet on left
   ctx.fillStyle = '#b45309';
   ctx.beginPath();
   ctx.arc(-w * 0.5 + 18, 0, 7.2, 0, Math.PI * 2);
@@ -501,7 +464,6 @@ export function drawPriorityCard(
   ctx.arc(-w * 0.5 + 18, 0, 4.6, 0, Math.PI * 2);
   ctx.fill();
 
-  // Bold Airport / Priority Code
   ctx.fillStyle = fgHex;
   ctx.font = `900 ${Math.round(h * 0.34)}px "Outfit", sans-serif`;
   ctx.textAlign = 'left';
@@ -511,14 +473,12 @@ export function drawPriorityCard(
   ctx.font = `600 ${Math.round(h * 0.16)}px "Noto Sans SC", "Outfit", sans-serif`;
   ctx.fillText(subtitle, -w * 0.5 + 34, h * 0.22);
 
-  // Barcode stripes on right
   const barRight = w * 0.5 - 14;
   for (let b = 0; b < 9; b++) {
     const bw = b % 3 === 0 ? 3 : 1.5;
     ctx.fillRect(barRight - b * 4.8, -h * 0.3, bw, h * 0.6);
   }
 
-  // Circular Postmark Year Stamp ("勋章")
   ctx.save();
   ctx.translate(w * 0.22, -h * 0.16);
   ctx.rotate(-0.22);
@@ -532,6 +492,90 @@ export function drawPriorityCard(
   ctx.textAlign = 'center';
   ctx.fillText(year, 0, 1);
   ctx.restore();
+
+  ctx.restore();
+}
+
+/**
+ * Layered Organic Cedar & Cypress Forest Silhouettes with Valley Mist
+ * (replaces cartoon 3-ellipse lollipop pines in S35 & S36!).
+ */
+export function drawOrganicMistForest(
+  sc: ShotContext,
+  groundY: number,
+  opts: {
+    farTreeHex: string;
+    nearTreeHex: string;
+    mistRgba: string;
+  }
+): void {
+  const { ctx, w, h, timeSec } = sc;
+  ctx.save();
+
+  const drawCedarSilhouette = (
+    tx: number,
+    baseY: number,
+    treeH: number,
+    boughW: number,
+    color: string
+  ) => {
+    ctx.fillStyle = color;
+    // Tapered trunk
+    ctx.beginPath();
+    ctx.moveTo(tx - boughW * 0.08, baseY);
+    ctx.lineTo(tx - boughW * 0.03, baseY - treeH);
+    ctx.lineTo(tx + boughW * 0.03, baseY - treeH);
+    ctx.lineTo(tx + boughW * 0.08, baseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Layered drooping cedar boughs (natural asymmetrical conifer silhouette)
+    const tiers = 7;
+    for (let t = 0; t < tiers; t++) {
+      const f = t / tiers;
+      const topY = baseY - treeH * (0.98 - f * 0.72);
+      const span = boughW * (0.18 + f * 0.82);
+      const droop = treeH * (0.09 + f * 0.05);
+      const asym = (hash01(tx * 0.13 + t * 7.1) - 0.5) * span * 0.16;
+
+      ctx.beginPath();
+      ctx.moveTo(tx, topY);
+      ctx.quadraticCurveTo(tx - span * 0.45, topY + droop * 0.55, tx - span + asym, topY + droop);
+      ctx.quadraticCurveTo(tx - span * 0.4, topY + droop * 0.85, tx, topY + droop * 0.62);
+      ctx.quadraticCurveTo(tx + span * 0.4, topY + droop * 0.85, tx + span + asym, topY + droop);
+      ctx.quadraticCurveTo(tx + span * 0.45, topY + droop * 0.55, tx, topY);
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+
+  // Far ridge cedars
+  for (let i = 0; i < 14; i++) {
+    const tx = (i / 13) * w + (hash01(i * 5.3) - 0.5) * 60;
+    if (Math.abs(tx - w * 0.46) < w * 0.15) continue;
+    const th = h * (0.38 + hash01(i * 9.1) * 0.24);
+    drawCedarSilhouette(tx, groundY, th, th * 0.22, opts.farTreeHex);
+  }
+
+  // Drifting woodland mist ribbon between depth layers
+  const mistDrift = Math.sin(timeSec * 0.4) * 35;
+  const mistGrad = ctx.createLinearGradient(0, groundY - h * 0.28, 0, groundY + 20);
+  mistGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  mistGrad.addColorStop(0.55, opts.mistRgba);
+  mistGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = mistGrad;
+  ctx.fillRect(-40 + mistDrift, groundY - h * 0.28, w + 80, h * 0.3);
+
+  // Framing foreground cedars at left and right edges
+  for (const [fx, scale] of [
+    [w * 0.08, 0.72],
+    [w * 0.19, 0.58],
+    [w * 0.82, 0.62],
+    [w * 0.93, 0.76],
+  ]) {
+    const th = h * scale;
+    drawCedarSilhouette(fx, groundY + 18, th, th * 0.24, opts.nearTreeHex);
+  }
 
   ctx.restore();
 }

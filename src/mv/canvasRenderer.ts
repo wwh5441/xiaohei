@@ -3,7 +3,7 @@ import {
   TRAVEL_STICKERS,
   type CameraMode,
   type MVChapter,
-  type SceneId,
+  type SubtitleMode,
 } from './mvData';
 import {
   clamp01,
@@ -14,31 +14,9 @@ import {
   type BeatState,
 } from './mvTimeline';
 import { renderSurfaceDiegeticLyrics } from './diegeticLyrics';
-import {
-  renderBootsWheelsLowShot,
-  renderChorusHeroLowShot,
-  renderCrossroadsPovShot,
-  renderFortressMonolithShot,
-  renderGuitarMacroShot,
-  renderOpenSuitcaseShot,
-  renderPriorityTagsMacro,
-  renderScuffedShellCloseup,
-  renderShoulderCompanionShot,
-  renderSplitTriptychShot,
-  renderTravelerWideShot,
-} from './shotComposersA';
-import {
-  renderAirportDelayRainShot,
-  renderConcoursePartingShot,
-  renderHandleWarmthMacroShot,
-  renderHomeDoorwaySunShot,
-  renderNametagDreamMacroShot,
-  renderSunsetHorizonOutroShot,
-  renderTimelapseNostalgiaShot,
-  renderTreeHollowPoeticShot,
-  renderTurntableCarouselShot,
-  renderWhistleCoastalShot,
-} from './shotComposersB';
+import { renderShotGroupA } from './shotComposersA';
+import { renderShotGroupB } from './shotComposersB';
+import { renderShotGroupC } from './shotComposersC';
 import { roundRectPath, type ShotContext } from './shotPrimitives';
 
 interface SparkParticle {
@@ -78,22 +56,23 @@ export interface RenderFrameInput {
   beat: BeatState;
   bands: AudioBands;
   cameraMode: CameraMode;
+  subtitleMode: SubtitleMode;
   reducedMotion: boolean;
 }
 
 export class MVCanvasRenderer {
   private sparks: SparkParticle[] = [];
   private flyingStickers: FlyingSticker[] = [];
-  private lastBeatIndex = -1;
-  private lastChapterId: SceneId | null = null;
   private scrollDist = 0;
   private wheelAngle = 0;
   private camTilt = 0;
   private camZoom = 1;
   private bonusStickerCount = 0;
+  private grainPattern: CanvasPattern | null = null;
+  private grainInitialized = false;
 
   constructor() {
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 100; i++) {
       this.sparks.push({
         active: false,
         x: 0,
@@ -109,7 +88,7 @@ export class MVCanvasRenderer {
         isConfetti: false,
       });
     }
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 24; i++) {
       this.flyingStickers.push({
         active: false,
         x: 0,
@@ -123,6 +102,33 @@ export class MVCanvasRenderer {
         maxLife: 1.5,
         specIdx: i % TRAVEL_STICKERS.length,
       });
+    }
+  }
+
+  private ensureFilmGrain(ctx: CanvasRenderingContext2D): CanvasPattern | null {
+    if (this.grainInitialized) return this.grainPattern;
+    this.grainInitialized = true;
+    if (typeof document === 'undefined') return null;
+    try {
+      const tile = document.createElement('canvas');
+      tile.width = 96;
+      tile.height = 96;
+      const gCtx = tile.getContext('2d');
+      if (!gCtx) return null;
+      const img = gCtx.createImageData(96, 96);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const s = Math.sin((i * 0.25) * 12.9898) * 43758.5453;
+        const v = Math.floor((s - Math.floor(s)) * 255);
+        img.data[i] = v;
+        img.data[i + 1] = v;
+        img.data[i + 2] = v;
+        img.data[i + 3] = 11;
+      }
+      gCtx.putImageData(img, 0, 0);
+      this.grainPattern = ctx.createPattern(tile, 'repeat');
+      return this.grainPattern;
+    } catch {
+      return null;
     }
   }
 
@@ -185,42 +191,48 @@ export class MVCanvasRenderer {
     height: number,
     input: RenderFrameInput
   ): ActiveShotInfo {
-    const { timeSec, dt, isPlaying, chapter, beat, bands, cameraMode, reducedMotion } = input;
+    const {
+      timeSec,
+      dt,
+      isPlaying,
+      chapter,
+      beat,
+      bands,
+      cameraMode,
+      subtitleMode,
+      reducedMotion,
+    } = input;
     const safeDt = Math.min(0.05, Math.max(0.001, dt));
 
     const shotInfo = resolveActiveShot(timeSec, cameraMode, beat);
+    const spec = shotInfo.spec;
+    const prog = shotInfo.lineProgress;
 
-    const isStillBridge =
-      shotInfo.shot === 'home_doorway_sun' || shotInfo.shot === 'nametag_dream_macro';
-    const speedFactor = isStillBridge
-      ? 0.08
-      : (isPlaying ? 1 : 0.16) * (0.42 + chapter.energyBase * 1.4 + beat.kickPulse * 0.48);
-    this.scrollDist += safeDt * 390 * speedFactor;
-    this.wheelAngle += safeDt * 12.5 * speedFactor;
+    const baseSpeed = (isPlaying ? 1 : 0.14) * (0.42 + chapter.energyBase * 1.35 + beat.kickPulse * 0.45);
+    this.scrollDist += safeDt * 380 * (spec.freezeWheel ? 0.04 : baseSpeed);
+    if (!spec.freezeWheel) {
+      this.wheelAngle += safeDt * 12.2 * baseSpeed;
+    }
 
-    // Keep automatic playback free of rectangular confetti clutter; track beat/chapter state cleanly
-    this.lastBeatIndex = beat.beatIndex;
-    this.lastChapterId = chapter.id;
+    // Per-shot lens kinematics interpolated across `lineProgress` (`zoomStart -> zoomEnd`, `panStart -> panEnd`, `dutchDeg`)
+    const specZoom = spec.zoomStart + (spec.zoomEnd - spec.zoomStart) * prog;
+    const cutZoomBoost = reducedMotion ? 0 : shotInfo.cutTransition * 0.055;
+    const punchZoom = reducedMotion ? 0 : beat.kickPulse * 0.036 + beat.sectionFlash * 0.06 + cutZoomBoost;
+    const targetZoom = Math.max(0.96, specZoom + punchZoom);
 
-    // Dynamic camera punch + whip-cut transition kinematics
-    const cutZoomBoost = reducedMotion ? 0 : shotInfo.cutTransition * 0.075;
-    const punchZoom = reducedMotion
-      ? 0
-      : beat.kickPulse * 0.048 + beat.sectionFlash * 0.08 + cutZoomBoost;
-    const targetZoom = 1.02 + punchZoom;
-
-    const isHighEnergy =
-      chapter.id === 'chorus1' || chapter.id === 'chorus2' || chapter.id === 'finale';
-    const targetTilt =
-      reducedMotion || cameraMode === 'cinema_wide'
-        ? 0
-        : isHighEnergy
-        ? (beat.beatIndex % 2 === 0 ? 1 : -1) * 0.018 * (0.35 + beat.kickPulse)
-        : Math.sin(timeSec * 1.2) * 0.004;
+    const dutchRad = (spec.dutchDeg * Math.PI) / 180;
+    const targetTilt = reducedMotion || cameraMode === 'cinema_wide' ? 0 : dutchRad;
 
     const damp = 1 - Math.exp(-14 * safeDt);
     this.camZoom += (targetZoom - this.camZoom) * damp;
     this.camTilt += (targetTilt - this.camTilt) * damp;
+
+    const panX = reducedMotion
+      ? 0
+      : (spec.panStartX + (spec.panEndX - spec.panStartX) * prog) * width + shotInfo.cutTransition * 18;
+    const panY = reducedMotion
+      ? 0
+      : (spec.panStartY + (spec.panEndY - spec.panStartY) * prog) * height;
 
     ctx.save();
     ctx.clearRect(0, 0, width, height);
@@ -229,17 +241,14 @@ export class MVCanvasRenderer {
 
     const cx = width * 0.5;
     const cy = height * 0.52;
-    const whipOffsetX = reducedMotion ? 0 : shotInfo.cutTransition * 26;
-
-    ctx.translate(cx + whipOffsetX, cy);
+    ctx.translate(cx + panX, cy + panY);
     ctx.scale(this.camZoom, this.camZoom);
     ctx.rotate(this.camTilt);
     ctx.translate(-cx, -cy);
 
     const lyricIdx = getActiveLyricIndex(timeSec);
     const activeLine = LYRIC_LINES[lyricIdx] ?? LYRIC_LINES[0];
-    const nextLine =
-      lyricIdx + 1 < LYRIC_LINES.length ? LYRIC_LINES[lyricIdx + 1] : null;
+    const nextLine = lyricIdx + 1 < LYRIC_LINES.length ? LYRIC_LINES[lyricIdx + 1] : null;
 
     const shotCtx: ShotContext = {
       ctx,
@@ -247,39 +256,43 @@ export class MVCanvasRenderer {
       h: height,
       timeSec,
       scrollDist: this.scrollDist,
-      wheelAngle: this.wheelAngle,
-      lineProgress: shotInfo.lineProgress,
+      wheelAngle: spec.freezeWheel ? 0 : this.wheelAngle,
+      lineProgress: prog,
       activeLine,
       nextLine,
       chapter,
+      shotSpec: spec,
+      subtitleMode,
       beat,
       bands,
       bonusStickers: this.bonusStickerCount,
       reducedMotion,
     };
 
-    // 1. Dispatch to the exact lyric-matched cinematic Shot Composer (includes midground-occluded sky lyrics)!
-    this.dispatchShot(shotInfo, shotCtx);
+    // 1. Dispatch across the 66 globally unique Storyboard Shot Composers (`S01`–`S66`)!
+    if (!renderShotGroupA(shotCtx, shotInfo.shot)) {
+      if (!renderShotGroupB(shotCtx, shotInfo.shot)) {
+        renderShotGroupC(shotCtx, shotInfo.shot);
+      }
+    }
 
-    // 1b. Render surface-coupled diegetic lyrics inside the active camera world!
+    // 2. Render surface-coupled world typography (FIDS board, Diptych/Triptych, Sanctuary Lintel, Outro Dedication, etc.)
     renderSurfaceDiegeticLyrics(shotCtx, shotInfo.shot);
 
-    // 2. Subtle audio spectrum pulse along lower frame
+    // 3. Subtle audio spectrum pulse along lower frame
     this.drawSubtleSpectrum(ctx, width, height, chapter, beat, bands);
 
-    // 3. Foreground particles & interactive Priority luggage tags
+    // 4. Interactive Priority luggage tags & burst particles
     this.updateAndDrawParticles(ctx, width, height, safeDt, reducedMotion);
 
-    // 4. Peripheral anamorphic light streaks ONLY on explosive hero / triptych chorus shots
-    const wantsImpactStreaks =
-      shotInfo.shot === 'chorus_hero_low' || shotInfo.shot === 'split_triptych';
-    if (!reducedMotion && isHighEnergy && wantsImpactStreaks) {
+    // 5. Peripheral impact streaks strictly on explosive spark-enabled chorus/finale shots
+    if (!reducedMotion && !spec.suppressSparks) {
       this.drawSpeedLines(ctx, width, height, chapter, beat);
     }
 
     ctx.restore();
 
-    // 5. Post-camera editorial framing, vignette scrim & film-cut shutter flash
+    // 6. Post-camera film grain, perimeter vignette, shutter cut flash & scope bars
     this.drawPostFraming(
       ctx,
       width,
@@ -294,74 +307,6 @@ export class MVCanvasRenderer {
     return shotInfo;
   }
 
-  private dispatchShot(shotInfo: ActiveShotInfo, sc: ShotContext): void {
-    switch (shotInfo.shot) {
-      case 'guitar_macro':
-        renderGuitarMacroShot(sc);
-        break;
-      case 'traveler_wide':
-        renderTravelerWideShot(sc);
-        break;
-      case 'boots_wheels_low':
-        renderBootsWheelsLowShot(sc);
-        break;
-      case 'scuffed_shell_closeup':
-        renderScuffedShellCloseup(sc);
-        break;
-      case 'priority_tags_macro':
-        renderPriorityTagsMacro(sc);
-        break;
-      case 'open_suitcase':
-        renderOpenSuitcaseShot(sc);
-        break;
-      case 'crossroads_pov':
-        renderCrossroadsPovShot(sc);
-        break;
-      case 'chorus_hero_low':
-        renderChorusHeroLowShot(sc);
-        break;
-      case 'split_triptych':
-        renderSplitTriptychShot(sc);
-        break;
-      case 'shoulder_companion':
-        renderShoulderCompanionShot(sc);
-        break;
-      case 'fortress_monolith':
-        renderFortressMonolithShot(sc);
-        break;
-      case 'turntable_carousel':
-        renderTurntableCarouselShot(sc);
-        break;
-      case 'airport_delay_rain':
-        renderAirportDelayRainShot(sc);
-        break;
-      case 'handle_warmth_macro':
-        renderHandleWarmthMacroShot(sc);
-        break;
-      case 'concourse_parting':
-        renderConcoursePartingShot(sc);
-        break;
-      case 'tree_hollow_poetic':
-        renderTreeHollowPoeticShot(sc);
-        break;
-      case 'whistle_coastal':
-        renderWhistleCoastalShot(sc);
-        break;
-      case 'timelapse_nostalgia':
-        renderTimelapseNostalgiaShot(sc);
-        break;
-      case 'home_doorway_sun':
-        renderHomeDoorwaySunShot(sc);
-        break;
-      case 'nametag_dream_macro':
-        renderNametagDreamMacroShot(sc);
-        break;
-      case 'sunset_horizon_outro':
-        renderSunsetHorizonOutroShot(sc);
-        break;
-    }
-  }
-
   private drawSubtleSpectrum(
     ctx: CanvasRenderingContext2D,
     w: number,
@@ -370,12 +315,12 @@ export class MVCanvasRenderer {
     beat: BeatState,
     bands: AudioBands
   ): void {
-    const amp = beat.kickPulse * 11 + beat.snarePulse * 7 + bands.overall * 10;
+    const amp = beat.kickPulse * 10 + beat.snarePulse * 6 + bands.overall * 9;
     if (amp < 1.2) return;
 
     ctx.save();
     ctx.strokeStyle = chapter.accentHex;
-    ctx.globalAlpha = 0.16;
+    ctx.globalAlpha = 0.14;
     ctx.lineWidth = 1.2;
     ctx.beginPath();
     const span = w * 0.68;
@@ -384,10 +329,7 @@ export class MVCanvasRenderer {
       const t = i / 56;
       const env = Math.sin(t * Math.PI);
       const x = x0 + t * span;
-      const y =
-        h -
-        4 -
-        Math.abs(Math.sin(i * 0.42 + this.scrollDist * 0.014)) * amp * env;
+      const y = h - 4 - Math.abs(Math.sin(i * 0.42 + this.scrollDist * 0.014)) * amp * env;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -422,13 +364,9 @@ export class MVCanvasRenderer {
       ctx.translate(p.x * w, p.y * h);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
-      if (p.isConfetti) {
-        ctx.fillRect(-p.size * 0.6, -p.size * 0.35, p.size * 1.2, p.size * 0.7);
-      } else {
-        ctx.beginPath();
-        ctx.arc(0, 0, p.size * 0.55, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size * 0.55, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 
@@ -477,14 +415,14 @@ export class MVCanvasRenderer {
     const cx = w * 0.5;
     const cy = h * 0.52;
     const outerR = Math.hypot(w, h) * 0.62;
-    const innerR = Math.min(w, h) * (0.44 - beat.kickPulse * 0.04);
-    const count = 18;
+    const innerR = Math.min(w, h) * (0.45 - beat.kickPulse * 0.04);
+    const count = 16;
 
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     ctx.strokeStyle = chapter.accentHex;
-    ctx.globalAlpha = 0.07 + beat.kickPulse * 0.16;
-    ctx.lineWidth = 1.6;
+    ctx.globalAlpha = 0.06 + beat.kickPulse * 0.14;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + beat.barIndex * 0.31;
@@ -509,24 +447,33 @@ export class MVCanvasRenderer {
     cameraMode: CameraMode,
     reducedMotion: boolean
   ): void {
-    // Soft Kodak Vision3 warm upper-corner halation + balanced cinema perimeter vignette
+    // Organic Kodak 35mm fine film grain pattern
+    const grain = this.ensureFilmGrain(ctx);
+    if (grain) {
+      ctx.save();
+      ctx.fillStyle = grain;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
+    }
+
+    // Cinema perimeter vignette
     const outerR = Math.hypot(w * 0.5, h * 0.5);
     const vignette = ctx.createRadialGradient(
       w * 0.5,
       h * 0.5,
-      outerR * 0.46,
+      outerR * 0.48,
       w * 0.5,
       h * 0.5,
       outerR * 1.04
     );
     vignette.addColorStop(0, 'rgba(9, 9, 11, 0)');
-    vignette.addColorStop(0.72, 'rgba(9, 9, 11, 0.18)');
-    vignette.addColorStop(1, 'rgba(6, 6, 9, 0.64)');
+    vignette.addColorStop(0.74, 'rgba(9, 9, 11, 0.16)');
+    vignette.addColorStop(1, 'rgba(6, 6, 9, 0.62)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, w, h);
 
     // Subtle film-cut shutter flash on shot transitions & chorus drops
-    const flash = Math.max(beat.sectionFlash * 0.26, shotInfo.cutTransition * 0.12);
+    const flash = Math.max(beat.sectionFlash * 0.24, shotInfo.cutTransition * 0.1);
     if (!reducedMotion && flash > 0.015) {
       ctx.fillStyle = chapter.accentHex;
       ctx.globalAlpha = flash;
@@ -534,7 +481,6 @@ export class MVCanvasRenderer {
       ctx.globalAlpha = 1;
     }
 
-    // Cinema 2.39:1 scope bars in cinema_wide mode
     if (cameraMode === 'cinema_wide') {
       const barH = Math.round(h * 0.075);
       ctx.fillStyle = '#050507';

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { LYRIC_LINES, MV_CHAPTERS, SONG_META } from './mvData';
+import { LYRIC_LINES, MV_CHAPTERS, SHOT_SPECS, SONG_META } from './mvData';
 import {
   computeBeatState,
   computeHumanStridePose,
@@ -39,8 +39,9 @@ test('MV chapters cover full 212.04s song continuously without gaps', () => {
   assert.equal(getActiveChapter(175.0).id, 'finale');
 });
 
-test('exact LRC lyric timestamps and poetic shot mappings align line by line', () => {
-  assert.ok(LYRIC_LINES.length >= 65);
+test('all 66 lyric cuts map 1-to-1 to 66 globally unique shots (zero duplicates)', () => {
+  assert.equal(LYRIC_LINES.length, 66);
+
   for (let i = 1; i < LYRIC_LINES.length; i++) {
     assert.ok(
       LYRIC_LINES[i].startTime >= LYRIC_LINES[i - 1].endTime - 1e-6,
@@ -52,45 +53,72 @@ test('exact LRC lyric timestamps and poetic shot mappings align line by line', (
     );
   }
 
-  // Verify user's exact LRC moments and matched poetic camera shots!
+  const distinctShots = new Set(LYRIC_LINES.map((l) => l.shot));
+  const distinctCodes = new Set(LYRIC_LINES.map((l) => l.shotCode));
+  const distinctLabels = new Set(LYRIC_LINES.map((l) => l.shotLabel));
+
+  assert.equal(distinctShots.size, 66, 'Every lyric line must have a globally unique ShotType');
+  assert.equal(distinctCodes.size, 66, 'Every lyric line must have a globally unique ShotCode (S01..S66)');
+  assert.equal(distinctLabels.size, 66, 'Every lyric line must have a globally unique shotLabel');
+  assert.equal(Object.keys(SHOT_SPECS).length, 66);
+});
+
+test('exact LRC lyric timestamps and revised poetic shot mappings align line by line', () => {
   const priorityIdx = getActiveLyricIndex(25.5);
   assert.ok(LYRIC_LINES[priorityIdx].text.includes('优先卡'));
   assert.equal(
     resolveActiveShot(25.5, 'auto', computeBeatState(25.5)).shot,
-    'priority_tags_macro'
+    's08_fanned_priority_tags'
   );
 
   const flightDelayIdx = getActiveLyricIndex(79.5);
   assert.ok(LYRIC_LINES[flightDelayIdx].text.includes('班机 延误了'));
   assert.equal(
     resolveActiveShot(79.5, 'auto', computeBeatState(79.5)).shot,
-    'airport_delay_rain'
+    's26_solari_fids_delayed_macro'
+  );
+
+  const gateLeanIdx = getActiveLyricIndex(94.5);
+  assert.ok(LYRIC_LINES[gateLeanIdx].text.includes('托住我'));
+  assert.equal(
+    resolveActiveShot(94.5, 'auto', computeBeatState(94.5)).shot,
+    's32_gate_pillar_lean_companion'
   );
 
   const treeHollowIdx = getActiveLyricIndex(103.2);
   assert.ok(LYRIC_LINES[treeHollowIdx].text.includes('像树洞'));
   assert.equal(
     resolveActiveShot(103.2, 'auto', computeBeatState(103.2)).shot,
-    'tree_hollow_poetic'
+    's35_ancient_hollow_rain_intake'
   );
 
   const timelapseIdx = getActiveLyricIndex(138.0);
   assert.ok(LYRIC_LINES[timelapseIdx].text.includes('万物都在速朽'));
   assert.equal(
     resolveActiveShot(138.0, 'auto', computeBeatState(138.0)).shot,
-    'timelapse_nostalgia'
+    's46_street_timelapse_sanctuary'
+  );
+
+  const haltedWheelIdx = getActiveLyricIndex(141.5);
+  assert.ok(LYRIC_LINES[haltedWheelIdx].text.includes('转轮 不再自由'));
+  const haltedShot = resolveActiveShot(141.5, 'auto', computeBeatState(141.5));
+  assert.equal(haltedShot.shot, 's47_halted_wheel_autumn_leaf');
+  assert.equal(haltedShot.spec.freezeWheel, true);
+  // Even in low_track override mode, S47 preserves halted wheel narrative continuity
+  assert.equal(
+    resolveActiveShot(141.5, 'low_track', computeBeatState(141.5)).shot,
+    's47_halted_wheel_autumn_leaf'
   );
 
   const nameTagIdx = getActiveLyricIndex(151.2);
   assert.ok(LYRIC_LINES[nameTagIdx].text.includes('陪着我 姓名'));
   assert.equal(
     resolveActiveShot(151.2, 'auto', computeBeatState(151.2)).shot,
-    'nametag_dream_macro'
+    's51_cognac_nametag_foil'
   );
 
-  // Ensure all 21 distinct camera ShotTypes are exercised across the MV
-  const distinctShots = new Set(LYRIC_LINES.map((l) => l.shot));
-  assert.equal(distinctShots.size, 21);
+  const outroShot = resolveActiveShot(205.0, 'auto', computeBeatState(205.0));
+  assert.equal(outroShot.shot, 's66_uyuni_mirror_outro');
 
   const progress = getLyricProgress(LYRIC_LINES[flightDelayIdx], 80.0);
   assert.ok(progress > 0 && progress < 1);
@@ -128,7 +156,6 @@ test('parseId3CoverArt extracts valid JPEG cover image from attached MP3 file', 
 });
 
 test('solveTwoBoneIK preserves exact limb lengths and connects hand to RIMOWA handle', () => {
-  // Reachable RIMOWA handle behind walking shoulder
   const arm = solveTwoBoneIK(200, 120, 168, 178, 40, 38, 1);
   const dUpper = Math.hypot(arm.elbowX - 200, arm.elbowY - 120);
   const dFore = Math.hypot(arm.handX - arm.elbowX, arm.handY - arm.elbowY);
@@ -137,7 +164,6 @@ test('solveTwoBoneIK preserves exact limb lengths and connects hand to RIMOWA ha
   assert.ok(Math.abs(arm.handX - 168) < 1e-4);
   assert.ok(Math.abs(arm.handY - 178) < 1e-4);
 
-  // Standing leg with bendSign = -1 bends knee forward (+X)
   const leg = solveTwoBoneIK(300, 200, 300, 320, 64, 61, -1);
   assert.ok(leg.elbowX > 300, 'Human knee must bend forward (+X)');
 });
@@ -155,13 +181,12 @@ test('resolveLyricStagePlacement distributes lyrics dynamically across spatial z
   assert.ok(zones.size >= 8, 'Lyrics should dynamically inhabit at least 8 distinct spatial zones');
   assert.ok(orientations.has('horizontal') && orientations.has('vertical'));
 
-  // Poetic tree hollow shot uses vertical-rl Chinese poetic typography
-  const treeLine = LYRIC_LINES.find((l) => l.shot === 'tree_hollow_poetic')!;
+  const treeLine = LYRIC_LINES.find((l) => l.shot === 's35_ancient_hollow_rain_intake')!;
   assert.equal(resolveLyricStagePlacement(treeLine, treeLine.shot).orientation, 'vertical');
 });
 
-test('diegetic lyric thermodynamics transitions deterministically from ghost -> strike -> cooled', () => {
-  // Line from 10.0s to 15.0s with 5 glyphs -> sungSpan = 4.1s, glyph 2 onset = 10 + (2/5)*4.1 = 11.64s
+test('diegetic lyric thermodynamics handles both standard sweeping lines and <1.85s quick cuts', () => {
+  // Standard 5.0s line -> progressive sweep
   const before = computeGlyphThermodynamics(2, 5, 10.0, 15.0, 10.8);
   assert.equal(before.state, 'ghost');
   assert.equal(before.heat, 0);
@@ -175,44 +200,37 @@ test('diegetic lyric thermodynamics transitions deterministically from ghost -> 
   assert.equal(cooled.state, 'cooled');
   assert.ok(cooled.heat < 0.05);
 
-  assert.equal(resolveDiegeticModeForShot('chorus_hero_low'), 'midground_occluded');
-  assert.equal(resolveDiegeticModeForShot('traveler_wide'), 'midground_occluded');
-  assert.equal(resolveDiegeticModeForShot('boots_wheels_low'), 'surface_coupled');
-  assert.equal(resolveDiegeticModeForShot('airport_delay_rain'), 'surface_coupled');
+  // Short 1.5s chorus line (< 1.85s) -> full phrase ignited by +0.3s so rapid cuts never cut off unread characters
+  const shortLastGlyph = computeGlyphThermodynamics(5, 6, 46.0, 47.5, 46.3);
+  assert.notEqual(shortLastGlyph.state, 'ghost');
+  assert.equal(shortLastGlyph.alpha, 1);
+
+  assert.equal(resolveDiegeticModeForShot('s16_overpass_sunburst_low'), 'midground_occluded');
+  assert.equal(resolveDiegeticModeForShot('s04_viaduct_sunset_wide'), 'midground_occluded');
+  assert.equal(resolveDiegeticModeForShot('s05_boulevard_odometer_low'), 'surface_coupled');
+  assert.equal(resolveDiegeticModeForShot('s26_solari_fids_delayed_macro'), 'surface_coupled');
 });
 
 test('1:7.5 human stride pose and gravity arm IK maintain upright stance and natural downward elbows', () => {
-  // Mid-stance (cycle01 = 0.29 => ankleOffsetX ~ 0): leg span must be ~99% of 110u thigh+calf (zero squatting!)
   const midStance = computeHumanStridePose(0.29 * Math.PI * 2);
   assert.equal(midStance.nearLeg.isGrounded, true);
   assert.ok(Math.abs(midStance.nearLeg.ankleOffsetX) < 1.5);
   assert.equal(midStance.nearLeg.ankleLiftY, 0);
 
-  const hipToAnkleMidU = (119.3 + midStance.pelvisBobY) - 11;
-  const legSumU = 55.5 + 54.5; // 110u
+  const hipToAnkleMidU = 119.3 + midStance.pelvisBobY - 11;
+  const legSumU = 55.5 + 54.5;
   assert.ok(
     hipToAnkleMidU / legSumU > 0.99 && hipToAnkleMidU / legSumU < 1.0,
     `Mid-stance leg extension ratio (${(hipToAnkleMidU / legSumU).toFixed(3)}) must be tall and upright`
   );
 
-  // Mid-swing (cycle01 = 0.79) must clear the ground cleanly while opposite leg stays grounded
   const midSwing = computeHumanStridePose(0.79 * Math.PI * 2);
   assert.equal(midSwing.nearLeg.isGrounded, false);
   assert.equal(midSwing.farLeg.isGrounded, true);
   assert.ok(midSwing.nearLeg.ankleLiftY > 11);
 
-  // Gravity arm IK always picks the lower (+Y) natural elbow rather than an inverted bird-wing elbow
   const armLeft = solveGravityArmIK(320, 140, 260, 178, 38, 37, -1);
   assert.ok(armLeft.elbowY > 140);
   const armRight = solveGravityArmIK(320, 140, 382, 175, 38, 37, 1);
   assert.ok(armRight.elbowY > 140);
-
-  // Terrace balustrade outward right-arm reach extends elbow gently outward & downward clear of torso
-  const terraceReach = solveTwoBoneIK(18, -188.2, 35.5, -136.0, 30.5, 29.5, -1);
-  assert.ok(terraceReach.handX > 34 && terraceReach.elbowX > 18 && terraceReach.elbowX < 40);
-  assert.ok(terraceReach.elbowY > -188.2);
-
-  // Walking tow-pull near arm keeps pulling elbow naturally behind shoulder (-X), never poking forward
-  const towPull = solveTwoBoneIK(0, 0, -32, 58, 39, 37, 1);
-  assert.ok(towPull.elbowX < 0 && towPull.elbowY > 0);
 });

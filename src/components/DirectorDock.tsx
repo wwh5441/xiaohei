@@ -6,6 +6,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Subtitles,
   Tag,
   Volume2,
   VolumeX,
@@ -15,6 +16,7 @@ import {
   SONG_META,
   type CameraMode,
   type MVChapter,
+  type SubtitleMode,
 } from '../mv/mvData';
 import { clamp01, formatTimecode } from '../mv/mvTimeline';
 
@@ -25,6 +27,7 @@ interface DirectorDockProps {
   activeChapter: MVChapter;
   activeShotLabel: string;
   cameraMode: CameraMode;
+  subtitleMode: SubtitleMode;
   isMuted: boolean;
   dockVisible: boolean;
   lyricsOpen: boolean;
@@ -32,6 +35,7 @@ interface DirectorDockProps {
   onSeek: (timeSec: number) => void;
   onRestart: () => void;
   onChangeCameraMode: (mode: CameraMode) => void;
+  onToggleSubtitleMode: () => void;
   onToggleMute: () => void;
   onTriggerSticker: () => void;
   onShowDock: () => void;
@@ -55,6 +59,7 @@ export function DirectorDock({
   activeChapter,
   activeShotLabel,
   cameraMode,
+  subtitleMode,
   isMuted,
   dockVisible,
   lyricsOpen,
@@ -62,6 +67,7 @@ export function DirectorDock({
   onSeek,
   onRestart,
   onChangeCameraMode,
+  onToggleSubtitleMode,
   onToggleMute,
   onTriggerSticker,
   onShowDock,
@@ -308,8 +314,22 @@ export function DirectorDock({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={onToggleSubtitleMode}
+              aria-pressed={subtitleMode === 'diegetic'}
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                subtitleMode === 'diegetic'
+                  ? 'border-amber-400/60 bg-amber-400/15 text-amber-300'
+                  : 'border-zinc-800 bg-zinc-900 text-zinc-200 hover:border-zinc-700 hover:text-white'
+              }`}
+            >
+              <Subtitles className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{subtitleMode === 'cinema' ? '电影字幕 (C)' : '实景字 (C)'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={onTriggerSticker}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-400/20 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Tag className="w-3.5 h-3.5" aria-hidden="true" />
               <span>贴优先卡 (B)</span>
@@ -319,7 +339,7 @@ export function DirectorDock({
               type="button"
               onClick={onToggleLyrics}
               aria-expanded={lyricsOpen}
-              className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 lyricsOpen
                   ? 'border-zinc-100 bg-zinc-100 text-zinc-950'
                   : 'border-zinc-800 bg-zinc-900 text-zinc-200 hover:border-zinc-700 hover:text-white'
